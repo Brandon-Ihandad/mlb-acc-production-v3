@@ -343,9 +343,9 @@ async function fetchData() {
     const yy = String(y).padStart(2,'0');
     seasons.push(yy+'S', yy+'F');
   }
-  const url = DCSAI_ORIGIN + '/embed/group-5/vendor-opr-dashboard/api/production/orders?brand_specs=M&seasons=' + encodeURIComponent(seasons.join(',')) + '&product_types=A&limit=50000';
+  const url = '/api/proxy/embed/group-5/vendor-opr-dashboard/api/production/orders?brand_specs=M&seasons=' + encodeURIComponent(seasons.join(',')) + '&product_types=A&limit=50000';
   console.log('Fetching:', url);
-  const res = await fetch(url, { credentials:'include' });
+  const res = await fetch(url);
   if (!res.ok) throw new Error('API ' + res.status + ': ' + res.statusText);
   return res.json();
 }
