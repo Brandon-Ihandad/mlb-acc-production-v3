@@ -2388,12 +2388,17 @@ async function exploreTeamsChannels() {
       }
     }
 
+    const rawStr = JSON.stringify(channels);
     let h = '<div style="padding:12px;font-size:11px">';
     h += '<div style="font-weight:600;margin-bottom:8px;font-size:13px">팀 채널 목록 (' + chList.length + '개)</div>';
-    if (chList.length === 0) {
-      h += '<div style="color:#868e96;margin-bottom:8px">응답 키: [' + Object.keys(channels).join(', ') + ']</div>';
-      h += '<div style="color:#868e96;font-size:9px;word-break:break-all;max-height:150px;overflow:auto">' + JSON.stringify(channels).substring(0, 800) + '</div>';
-    }
+    // 항상 디버그 표시
+    h += '<div style="background:#fff3bf;border:1px solid #fcc419;border-radius:6px;padding:10px;margin-bottom:10px;font-size:11px">';
+    h += '<b>API 응답 디버그:</b><br>';
+    h += 'isArray: ' + Array.isArray(channels) + ', type: ' + typeof channels + '<br>';
+    h += 'keys: [' + (typeof channels === 'object' && channels !== null ? Object.keys(channels).join(', ') : '') + ']<br>';
+    h += 'raw (' + rawStr.length + '자):<br>';
+    h += '<div style="max-height:200px;overflow:auto;word-break:break-all;font-size:10px;margin-top:4px;background:#fff;padding:6px;border-radius:4px">' + rawStr.substring(0, 1500).replace(/</g,'&lt;') + '</div>';
+    h += '</div>';
 
     // 2. 각 채널의 파일 조회
     for (const ch of chList) {
