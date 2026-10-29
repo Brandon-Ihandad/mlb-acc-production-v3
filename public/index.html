@@ -2372,10 +2372,28 @@ async function exploreTeamsChannels() {
 
     // 1. 채널 목록 조회
     const channels = await teamsCall(`/teams/${teamId}/channels`);
-    const chList = Array.isArray(channels) ? channels : (channels.value || channels.items || []);
+    console.log('channels response:', JSON.stringify(channels).substring(0, 1000));
+    // 다양한 응답 형태 처리
+    let chList = [];
+    if (Array.isArray(channels)) chList = channels;
+    else if (channels.value) chList = channels.value;
+    else if (channels.items) chList = channels.items;
+    else if (channels.channels) chList = channels.channels;
+    else {
+      // 응답이 객체이고 위 키가 없으면 — 객체 자체가 채널 목록일 수 있음
+      const keys = Object.keys(channels);
+      // 숫자 키가 있으면 유사배열
+      if (keys.length > 0 && keys.every(k => !isNaN(k))) {
+        chList = keys.map(k => channels[k]);
+      }
+    }
 
     let h = '<div style="padding:12px;font-size:11px">';
     h += '<div style="font-weight:600;margin-bottom:8px;font-size:13px">팀 채널 목록 (' + chList.length + '개)</div>';
+    if (chList.length === 0) {
+      h += '<div style="color:#868e96;margin-bottom:8px">응답 키: [' + Object.keys(channels).join(', ') + ']</div>';
+      h += '<div style="color:#868e96;font-size:9px;word-break:break-all;max-height:150px;overflow:auto">' + JSON.stringify(channels).substring(0, 800) + '</div>';
+    }
 
     // 2. 각 채널의 파일 조회
     for (const ch of chList) {
