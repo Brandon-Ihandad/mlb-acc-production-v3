@@ -198,16 +198,26 @@ const DCSAI_ORIGIN = (() => {
 
 // Teams API 호출 헬퍼
 async function teamsCall(path, init) {
-  const res = await fetch(`${DCSAI_ORIGIN}/server/projects/${TEAMS_PROJECT}/ms${path}`, {
+  const url = `${DCSAI_ORIGIN}/server/projects/${TEAMS_PROJECT}/ms${path}`;
+  console.log('[teamsCall]', url);
+  const res = await fetch(url, {
     credentials: 'include',
     ...init,
   });
+  const ct = res.headers.get('content-type') || '';
+  if (ct.includes('text/html')) {
+    throw new Error(`Teams API returned HTML (SPA fallback?) for ${path}. DCSAI_ORIGIN=${DCSAI_ORIGIN}`);
+  }
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const msg = err.error?.message || res.statusText;
+    const errText = await res.text().catch(() => '');
+    let msg = res.statusText;
+    try { const j = JSON.parse(errText); msg = j.error?.message || j.detail || errText.substring(0, 300); } catch(_) { msg = errText.substring(0, 300); }
     throw new Error(`Teams API ${res.status}: ${msg}`);
   }
-  return res.json();
+  const text = await res.text();
+  try { return JSON.parse(text); } catch(_) {
+    throw new Error(`Teams API JSON parse failed. Content-Type: ${ct}, body(200자): ${text.substring(0, 200)}`);
+  }
 }
 
 // Teams 채널 파일 링크 조회
@@ -2359,6 +2369,21 @@ function buildSeasonTabs(containerId, seasons, onSelect) {
 }
 
 // ── Teams 채널 탐색 ──
+function extractList(obj) {
+  if (Array.isArray(obj)) return obj;
+  if (!obj || typeof obj !== 'object') return [];
+  for (const k of ['value','items','channels','data','results']) {
+    if (Array.isArray(obj[k])) return obj[k];
+  }
+  const keys = Object.keys(obj);
+  if (keys.length > 0 && keys.every(k => !isNaN(k))) return keys.map(k => obj[k]);
+  // 배열이 중첩된 경우 — 값 중 배열인 것을 찾기
+  for (const k of keys) {
+    if (Array.isArray(obj[k]) && obj[k].length > 0 && typeof obj[k][0] === 'object') return obj[k];
+  }
+  return [];
+}
+
 async function exploreTeamsChannels() {
   const btn = document.getElementById('teams-explore-btn');
   const contentEl = document.getElementById('teams-sample-content');
@@ -2367,40 +2392,41 @@ async function exploreTeamsChannels() {
   contentEl.innerHTML = '<div style="padding:12px;font-size:11px;color:#868e96">팀 채널 목록 조회 중...</div>';
 
   try {
-    // 팀 ID (MLB SCM Headwear)
     const teamId = '4746f2cc-46ec-4704-bc77-b323570687fe';
+    let h = '<div style="padding:12px;font-size:11px">';
 
-    // 1. 채널 목록 조회
-    const channels = await teamsCall(`/teams/${teamId}/channels`);
-    console.log('channels response:', JSON.stringify(channels).substring(0, 1000));
-    // 다양한 응답 형태 처리
-    let chList = [];
-    if (Array.isArray(channels)) chList = channels;
-    else if (channels.value) chList = channels.value;
-    else if (channels.items) chList = channels.items;
-    else if (channels.channels) chList = channels.channels;
-    else {
-      // 응답이 객체이고 위 키가 없으면 — 객체 자체가 채널 목록일 수 있음
-      const keys = Object.keys(channels);
-      // 숫자 키가 있으면 유사배열
-      if (keys.length > 0 && keys.every(k => !isNaN(k))) {
-        chList = keys.map(k => channels[k]);
-      }
+    // Step 1: /teams 로 팀 목록 먼저 확인 (API 연결 검증)
+    let teamsDebug = '';
+    try {
+      const teamsResp = await teamsCall('/teams');
+      const teamsList = extractList(teamsResp);
+      teamsDebug = 'GET /teams → ' + teamsList.length + '개 팀. ';
+      const myTeam = teamsList.find(t => t.id === teamId);
+      if (myTeam) teamsDebug += '대상 팀 발견: ' + (myTeam.displayName || myTeam.name || '?');
+      else teamsDebug += '대상 팀(' + teamId.substring(0,8) + '...) 미발견! 팀 목록: ' + teamsList.map(t => (t.displayName||t.name||'?')+'/'+((t.id||'').substring(0,8))).join(', ');
+    } catch (te) {
+      teamsDebug = 'GET /teams 실패: ' + te.message;
     }
 
+    // Step 2: /teams/{teamId}/channels 로 채널 목록
+    const channels = await teamsCall(`/teams/${teamId}/channels`);
+    const chList = extractList(channels);
+
     const rawStr = JSON.stringify(channels);
-    let h = '<div style="padding:12px;font-size:11px">';
-    h += '<div style="font-weight:600;margin-bottom:8px;font-size:13px">팀 채널 목록 (' + chList.length + '개)</div>';
-    // 항상 디버그 표시
     h += '<div style="background:#fff3bf;border:1px solid #fcc419;border-radius:6px;padding:10px;margin-bottom:10px;font-size:11px">';
-    h += '<b>API 응답 디버그:</b><br>';
-    h += 'isArray: ' + Array.isArray(channels) + ', type: ' + typeof channels + '<br>';
-    h += 'keys: [' + (typeof channels === 'object' && channels !== null ? Object.keys(channels).join(', ') : '') + ']<br>';
-    h += 'raw (' + rawStr.length + '자):<br>';
-    h += '<div style="max-height:200px;overflow:auto;word-break:break-all;font-size:10px;margin-top:4px;background:#fff;padding:6px;border-radius:4px">' + rawStr.substring(0, 1500).replace(/</g,'&lt;') + '</div>';
+    h += '<b>[디버그] Teams API 응답</b><br>';
+    h += teamsDebug + '<br>';
+    h += 'GET /teams/' + teamId.substring(0,8) + '.../channels →<br>';
+    h += 'isArray: ' + Array.isArray(channels) + ', type: ' + typeof channels;
+    if (typeof channels === 'object' && channels !== null) h += ', keys: [' + Object.keys(channels).join(', ') + ']';
+    h += '<br>parsed chList.length: ' + chList.length + '<br>';
+    h += 'DCSAI_ORIGIN: ' + DCSAI_ORIGIN + '<br>';
+    h += '<div style="max-height:200px;overflow:auto;word-break:break-all;font-size:10px;margin-top:4px;background:#fff;padding:6px;border-radius:4px;border:1px solid #e9ecef">' + rawStr.substring(0, 2000).replace(/</g,'&lt;') + '</div>';
     h += '</div>';
 
-    // 2. 각 채널의 파일 조회
+    h += '<div style="font-weight:600;margin-bottom:8px;font-size:13px">팀 채널 목록 (' + chList.length + '개)</div>';
+
+    // 각 채널의 파일 조회
     for (const ch of chList) {
       const chName = ch.displayName || ch.name || '(이름없음)';
       const chId = ch.id;
@@ -2410,7 +2436,7 @@ async function exploreTeamsChannels() {
 
       try {
         const files = await teamsListFiles(teamId, chId);
-        const fileList = Array.isArray(files) ? files : (files.items || files.value || files.files || []);
+        const fileList = extractList(files);
         if (fileList.length === 0) {
           h += '<div style="color:#adb5bd;font-size:10px">파일 없음</div>';
         } else {
@@ -2434,7 +2460,7 @@ async function exploreTeamsChannels() {
     contentEl.innerHTML = h;
   } catch (e) {
     contentEl.innerHTML = '<div style="background:#fff5f5;border:1px solid #ffc9c9;border-radius:8px;padding:14px;font-size:11px;color:#c92a2a">'
-      + '<b>채널 탐색 오류:</b> ' + e.message + '</div>';
+      + '<b>채널 탐색 오류:</b> ' + e.message + '<br>DCSAI_ORIGIN: ' + DCSAI_ORIGIN + '</div>';
   }
   btn.disabled = false;
   btn.textContent = '채널 탐색';
