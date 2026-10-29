@@ -178,16 +178,13 @@ const VENDOR_CONTACTS = {
 
 // ── Teams Integration Config ──
 const TEAMS_PROJECT = 'mlb-acc-production-v2'; // cloudy project slug
+const TEAMS_TEAM_ID = '4746f2cc-46ec-4704-bc77-b323570687fe';
 const TEAMS_CHANNELS = [
-  {
-    label: 'UNIPAX',
-    teamId: '4746f2cc-46ec-4704-bc77-b323570687fe',
-    channelId: '19:2UXWgR5Z98MvQ4J7JjBLJFSnv5cyGKVNbls4SQZNk6Q1@thread.tacv2',
-    fileName: 'UPX_PPS,TOP STATUS',
-    vendor: 'UNIPAX',
-  },
-  // 향후 추가 채널:
-  // { label: 'FOREMOST', teamId: '...', channelId: '...', fileName: '...', vendor: 'Foremost' },
+  { label: 'UNIPAX',   channelId: '19:2UXWgR5Z98MvQ4J7JjBLJFSnv5cyGKVNbls4SQZNk6Q1@thread.tacv2', vendor: 'UNIPAX' },
+  { label: 'FOREMOST', channelId: '19:DV58dBNMfDnHh9tf11ojwRyqBB65SJnh3RoinYA7VaE1@thread.tacv2', vendor: 'FOREMOST' },
+  { label: 'PNG',      channelId: '19:Kh-yo5YSzLfBa4l1YeaYgrIlYvo7DbfAhi5EQDglLg41@thread.tacv2', vendor: 'PNG' },
+  { label: 'NTRX',     channelId: '19:Trxx0oXydc2035waCObv_A2kwOUFVkMlkZi0zTrXyek1@thread.tacv2', vendor: 'NTRX' },
+  { label: 'YUPOONG',  channelId: '19:bAWSKiNZSulT_usFqIohqxcsN5ulS8UO12IUqEK6Zrs1@thread.tacv2', vendor: 'YUPOONG' },
 ];
 
 // dcsai origin 계산 (embedded app은 다른 오리진에서 서빙됨)
@@ -2392,7 +2389,7 @@ async function exploreTeamsChannels() {
   contentEl.innerHTML = '<div style="padding:12px;font-size:11px;color:#868e96">팀 채널 목록 조회 중...</div>';
 
   try {
-    const teamId = '4746f2cc-46ec-4704-bc77-b323570687fe';
+    const teamId = TEAMS_TEAM_ID;
     let h = '<div style="padding:12px;font-size:11px">';
 
     // Step 1: /teams 로 팀 목록 먼저 확인 (API 연결 검증)
@@ -2480,22 +2477,23 @@ async function connectTeams() {
   for (const ch of TEAMS_CHANNELS) {
     try {
       status.textContent = ch.label + ' 파일 목록 조회 중...';
-      const files = await teamsListFiles(ch.teamId, ch.channelId);
+      const files = await teamsListFiles(TEAMS_TEAM_ID, ch.channelId);
       const filesStr = JSON.stringify(files).substring(0, 1000);
       console.log(ch.label + ' files:', filesStr);
-      // fileName과 매칭되는 xlsx 파일 찾기 (name, fileName, webUrl 등에서)
-      const fileList = Array.isArray(files) ? files : (files.items || files.value || files.files || []);
+      const fileList = extractList(files);
+      // PPS/TOP STATUS xlsx 자동 매칭: 파일명에 "pps" 또는 "status"가 포함된 xlsx
       const target = fileList.find(f => {
-        const nm = (f.name || f.fileName || f.webUrl || '').toLowerCase();
-        return nm.includes(ch.fileName.toLowerCase()) && (nm.endsWith('.xlsx') || nm.includes('.xlsx'));
-      });
+        const nm = (f.name || '').toLowerCase();
+        return nm.endsWith('.xlsx') && (nm.includes('pps') || nm.includes('status'));
+      }) || fileList.find(f => (f.name || '').toLowerCase().endsWith('.xlsx')); // fallback: 아무 xlsx
       if (!target) {
-        const names = fileList.map(f => f.name || f.fileName || JSON.stringify(f).substring(0,80));
-        const msg = ch.label + ': "' + ch.fileName + '" 파일 못찾음. 파일목록: ' + (names.length > 0 ? names.join(', ') : '비어있음. 응답: ' + filesStr.substring(0, 300));
+        const names = fileList.map(f => f.name || JSON.stringify(f).substring(0,80));
+        const msg = ch.label + ': Excel 파일 못찾음. 파일목록: ' + (names.length > 0 ? names.join(', ') : '비어있음. 응답: ' + filesStr.substring(0, 300));
         console.warn(msg);
         errors.push(msg);
         continue;
       }
+      console.log(ch.label + ' matched file: ' + target.name);
       status.textContent = ch.label + ' Excel 읽기 시도 중...';
       // 파일 정보 로그 (디버깅용)
       const targetInfo = JSON.stringify(target, null, 2);
