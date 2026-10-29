@@ -343,7 +343,7 @@ async function fetchData() {
     const yy = String(y).padStart(2,'0');
     seasons.push(yy+'S', yy+'F');
   }
-  const url = '/embed/group-5/vendor-opr-dashboard/api/production/orders?brand_specs=M&seasons=' + encodeURIComponent(seasons.join(',')) + '&product_types=A&limit=50000';
+  const url = DCSAI_ORIGIN + '/embed/group-5/vendor-opr-dashboard/api/production/orders?brand_specs=M&seasons=' + encodeURIComponent(seasons.join(',')) + '&product_types=A&limit=50000';
   console.log('Fetching:', url);
   const res = await fetch(url, { credentials:'include' });
   if (!res.ok) throw new Error('API ' + res.status + ': ' + res.statusText);
@@ -354,11 +354,8 @@ async function fetchData() {
 async function fetchSourcingStatus(seasons) {
   const statusMap = {};
   try {
-    // 같은 디렉토리의 sourcing_status.json 로드
-    const loc = location.pathname;
-    // quick-dashboard 라우팅: /server/quick-dashboard/mlb-acc-production-v2 → 같은 경로에 파일
-    const base = loc.endsWith('/') ? loc.slice(0, -1) : (loc.endsWith('.html') ? loc.replace(/\/[^/]*$/, '') : loc);
-    const url = base + '/sourcing_status.json';
+    // embedded app: 같은 서버의 /sourcing_status.json
+    const url = '/sourcing_status.json';
     console.log('Sourcing status URL:', url);
     const res = await fetch(url);
     if (!res.ok) { console.warn('sourcing_status.json not found:', res.status, 'url:', url); return statusMap; }
