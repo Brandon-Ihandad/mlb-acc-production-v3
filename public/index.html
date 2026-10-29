@@ -288,13 +288,26 @@ function parseExcelApiResponse(rows, ch) {
 // Excel 파싱: PPS/TOP STATUS 시트 → 배열 (SheetJS - fallback용)
 function parseTeamsExcel(arrayBuffer) {
   const wb = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array', cellDates: true });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  if (!ws) return [];
-  // 헤더는 Row 9 (0-indexed: 8), 데이터는 Row 10~
-  // A=SKU, B=STYLE, C=COLOR, D=VENDOR, E=AGREED ETD
-  // PPS: F=CFM DUE, G-K=1st-5th ETD, L=ATD, M=MLB CFM
-  // TOP: N=CFM DUE, O-S=1st-5th ETD, T=ATD, U=MLB CFM, V=REMARK
+  // 디버그: 시트 정보, 처음 15행 샘플 데이터
+  const sheetNames = wb.SheetNames;
+  const ws = wb.Sheets[sheetNames[0]];
+  if (!ws) { window._lastExcelDebug = 'SheetJS: 시트 없음. sheetNames=' + JSON.stringify(sheetNames); return []; }
   const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+  // 처음 15행 × 처음 10열 샘플
+  const sample = [];
+  for (let r = 0; r <= Math.min(14, range.e.r); r++) {
+    const row = [];
+    for (let c = 0; c <= Math.min(9, range.e.c); c++) {
+      const cell = ws[XLSX.utils.encode_cell({r, c})];
+      row.push(cell ? String(cell.v).substring(0, 30) : '');
+    }
+    sample.push('R' + (r+1) + ': ' + row.join(' | '));
+  }
+  window._lastExcelDebug = 'SheetJS fallback\nsheets: ' + JSON.stringify(sheetNames) +
+    '\nrange: ' + ws['!ref'] + ' (rows: ' + (range.e.r+1) + ', cols: ' + (range.e.c+1) + ')' +
+    '\n\n' + sample.join('\n');
+  console.log('parseTeamsExcel debug:', window._lastExcelDebug);
+
   const results = [];
   for (let r = 9; r <= range.e.r; r++) { // 0-indexed row 9 = Excel row 10
     const cellB = ws[XLSX.utils.encode_cell({r, c:1})];
