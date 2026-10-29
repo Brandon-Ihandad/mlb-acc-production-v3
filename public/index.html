@@ -2284,11 +2284,13 @@ async function connectTeams() {
   status.className = 'teams-status';
 
   let loaded = 0;
+  const errors = [];
   for (const ch of TEAMS_CHANNELS) {
     try {
       status.textContent = ch.label + ' 파일 목록 조회 중...';
       const files = await teamsListFiles(ch.teamId, ch.channelId);
-      console.log(ch.label + ' files:', JSON.stringify(files).substring(0, 500));
+      const filesStr = JSON.stringify(files).substring(0, 1000);
+      console.log(ch.label + ' files:', filesStr);
       // fileName과 매칭되는 xlsx 파일 찾기 (name, fileName, webUrl 등에서)
       const fileList = Array.isArray(files) ? files : (files.items || files.value || files.files || []);
       const target = fileList.find(f => {
@@ -2296,9 +2298,10 @@ async function connectTeams() {
         return nm.includes(ch.fileName.toLowerCase()) && (nm.endsWith('.xlsx') || nm.includes('.xlsx'));
       });
       if (!target) {
-        console.warn(ch.label + ': 파일을 찾을 수 없음. 전체 목록:', fileList.map(f => f.name || f.fileName));
-        status.textContent = ch.label + ': "' + ch.fileName + '" 파일을 찾을 수 없습니다';
-        status.className = 'teams-status error';
+        const names = fileList.map(f => f.name || f.fileName || JSON.stringify(f).substring(0,80));
+        const msg = ch.label + ': "' + ch.fileName + '" 파일 못찾음. 파일목록: ' + (names.length > 0 ? names.join(', ') : '비어있음. 응답: ' + filesStr.substring(0, 300));
+        console.warn(msg);
+        errors.push(msg);
         continue;
       }
       status.textContent = ch.label + ' Excel 다운로드 중...';
@@ -2311,8 +2314,7 @@ async function connectTeams() {
       loaded++;
     } catch (e) {
       console.error(ch.label + ' 연결 실패:', e);
-      status.textContent = ch.label + ' 오류: ' + e.message;
-      status.className = 'teams-status error';
+      errors.push(ch.label + ' 오류: ' + e.message);
     }
   }
 
@@ -2324,10 +2326,15 @@ async function connectTeams() {
     renderTeamsVendorChips();
     renderTeamsSampleContent(Object.keys(window._teamsData)[0]);
   } else {
-    status.textContent = '연결된 채널 없음';
     status.className = 'teams-status error';
     btn.textContent = 'Teams 연결';
     btn.disabled = false;
+  }
+  // 에러 상세 표시
+  if (errors.length > 0) {
+    const errEl = document.getElementById('teams-sample-content');
+    errEl.innerHTML = '<div style="background:#fff5f5;border:1px solid #ffc9c9;border-radius:8px;padding:14px;font-size:11px;color:#c92a2a;margin-top:8px;white-space:pre-wrap">'
+      + '<b>Teams 연결 상세 오류:</b>\n' + errors.join('\n') + '</div>';
   }
 }
 
