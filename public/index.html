@@ -180,11 +180,11 @@ const VENDOR_CONTACTS = {
 const TEAMS_PROJECT = 'mlb-acc-production-v2'; // cloudy project slug
 const TEAMS_TEAM_ID = '4746f2cc-46ec-4704-bc77-b323570687fe';
 const TEAMS_CHANNELS = [
-  { label: 'UNIPAX',   channelId: '19:2UXWgR5Z98MvQ4J7JjBLJFSnv5cyGKVNbls4SQZNk6Q1@thread.tacv2', vendor: 'UNIPAX' },
-  { label: 'FOREMOST', channelId: '19:DV58dBNMfDnHh9tf11ojwRyqBB65SJnh3RoinYA7VaE1@thread.tacv2', vendor: 'FOREMOST' },
-  { label: 'PNG',      channelId: '19:Kh-yo5YSzLfBa4l1YeaYgrIlYvo7DbfAhi5EQDglLg41@thread.tacv2', vendor: 'PNG' },
-  { label: 'NTRX',     channelId: '19:Trxx0oXydc2035waCObv_A2kwOUFVkMlkZi0zTrXyek1@thread.tacv2', vendor: 'NTRX' },
-  { label: 'YUPOONG',  channelId: '19:bAWSKiNZSulT_usFqIohqxcsN5ulS8UO12IUqEK6Zrs1@thread.tacv2', vendor: 'YUPOONG' },
+  { label: 'UNIPAX',   channelId: '19:2UXWgR5Z98MvQ4J7JjBLJFSnv5cyGKVNbls4SQZNk6Q1@thread.tacv2', fileName: 'UPX_PPS,TOP STATUS',  vendor: 'UNIPAX' },
+  { label: 'FOREMOST', channelId: '19:DV58dBNMfDnHh9tf11ojwRyqBB65SJnh3RoinYA7VaE1@thread.tacv2', fileName: 'FMT_PPS,TOP STATUS',  vendor: 'FOREMOST' },
+  { label: 'PNG',      channelId: '19:Kh-yo5YSzLfBa4l1YeaYgrIlYvo7DbfAhi5EQDglLg41@thread.tacv2', fileName: 'PNG_PPS,TOP STATUS',  vendor: 'PNG' },
+  { label: 'NTRX',     channelId: '19:Trxx0oXydc2035waCObv_A2kwOUFVkMlkZi0zTrXyek1@thread.tacv2', fileName: 'NTRX_PPS,TOP STATUS', vendor: 'NTRX' },
+  { label: 'YUPOONG',  channelId: '19:bAWSKiNZSulT_usFqIohqxcsN5ulS8UO12IUqEK6Zrs1@thread.tacv2', fileName: 'YP_PPS,TOP STATUS',   vendor: 'YUPOONG' },
 ];
 
 // dcsai origin 계산 (embedded app은 다른 오리진에서 서빙됨)
@@ -2481,14 +2481,14 @@ async function connectTeams() {
       const filesStr = JSON.stringify(files).substring(0, 1000);
       console.log(ch.label + ' files:', filesStr);
       const fileList = extractList(files);
-      // PPS/TOP STATUS xlsx 자동 매칭: 파일명에 "pps" 또는 "status"가 포함된 xlsx
+      // fileName으로 정확히 매칭 (.xlsx 확장자 포함/미포함 모두 처리)
       const target = fileList.find(f => {
         const nm = (f.name || '').toLowerCase();
-        return nm.endsWith('.xlsx') && (nm.includes('pps') || nm.includes('status'));
-      }) || fileList.find(f => (f.name || '').toLowerCase().endsWith('.xlsx')); // fallback: 아무 xlsx
+        return nm.includes(ch.fileName.toLowerCase()) && nm.endsWith('.xlsx');
+      });
       if (!target) {
         const names = fileList.map(f => f.name || JSON.stringify(f).substring(0,80));
-        const msg = ch.label + ': Excel 파일 못찾음. 파일목록: ' + (names.length > 0 ? names.join(', ') : '비어있음. 응답: ' + filesStr.substring(0, 300));
+        const msg = ch.label + ': "' + ch.fileName + '" 파일 못찾음. 파일목록: ' + (names.length > 0 ? names.join(', ') : '비어있음. 응답: ' + filesStr.substring(0, 300));
         console.warn(msg);
         errors.push(msg);
         continue;
