@@ -2398,58 +2398,63 @@ async function connectTeams() {
       const filePath = target.serverRelativeUrl
         || target.path
         || (() => {
-            // webUrl에서 서버 상대 경로 추출 시도
             try {
               const u = new URL(target.webUrl);
-              // /sites/.../파일명 형태 추출
               const match = u.pathname.match(/\/sites\/[^/]+\/[^/]+\/.+/);
               return match ? match[0] : null;
             } catch { return null; }
           })()
         || target.name;
 
-      // 방법 1: GET /excel/files/read (서버에서 직접 파싱) — file_path 필수
+      // Step 1: POST download → 서버에 파일 다운로드 → downloaded_files 경로 획득
+      // Step 2: GET excel/files/read → 해당 경로로 Excel 읽기
       try {
-        status.textContent = ch.label + ' Excel API 읽기 중...';
-        const excelData = await teamsReadExcel({ file_path: filePath });
+        status.textContent = ch.label + ' 파일 다운로드 중...';
+        // download API는 JSON 응답 반환 (바이너리가 아님)
+        const dlRes = await fetch(`${DCSAI_ORIGIN}/server/projects/${TEAMS_PROJECT}/ms/${ch.teamId}/channels/${ch.channelId}/files/download`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ local_path: filePath }),
+        });
+        if (!dlRes.ok) {
+          const errText = await dlRes.text().catch(() => '');
+          throw new Error('Download failed: ' + dlRes.status + ' ' + errText.substring(0, 500));
+        }
+        const dlData = await dlRes.json();
+        console.log(ch.label + ' download response:', JSON.stringify(dlData).substring(0, 500));
+
+        if (!dlData.success || !dlData.downloaded_files || dlData.downloaded_files.length === 0) {
+          throw new Error('Download 응답에 파일 경로 없음: ' + JSON.stringify(dlData).substring(0, 500));
+        }
+
+        // Step 2: downloaded_files[0]을 file_path로 excel/files/read 호출
+        const serverFilePath = dlData.downloaded_files[0];
+        status.textContent = ch.label + ' Excel 읽기 중...';
+        const excelData = await teamsReadExcel({ file_path: serverFilePath });
         const excelStr = JSON.stringify(excelData).substring(0, 1500);
         console.log(ch.label + ' excel/files/read 성공:', excelStr);
-        // 디버그 정보 저장
+
+        // 디버그 정보
         const keys = typeof excelData === 'object' && excelData !== null ? Object.keys(excelData) : [];
         const isArr = Array.isArray(excelData);
-        let debugRows = '';
-        if (isArr && excelData.length > 0) {
-          debugRows = 'Array[' + excelData.length + '], first: ' + JSON.stringify(excelData[0]).substring(0, 300);
-        }
-        window._lastExcelDebug = 'type=' + typeof excelData + ', isArray=' + isArr + ', keys=[' + keys.join(',') + '], length=' + (isArr ? excelData.length : '-') + '\n' + debugRows + '\nraw(500): ' + excelStr.substring(0, 500);
-        // 서버가 반환하는 형태에 따라 파싱
+        window._lastExcelDebug = 'download path: ' + serverFilePath +
+          '\ntype=' + typeof excelData + ', isArray=' + isArr + ', keys=[' + keys.join(',') + ']' +
+          '\nraw(500): ' + excelStr.substring(0, 500);
+
+        // 서버 응답 형태에 따라 파싱
         if (isArr) {
           parsed = parseExcelApiResponse(excelData, ch);
         } else if (excelData.values || excelData.rows) {
-          const arr = excelData.values || excelData.rows;
-          window._lastExcelDebug += '\nusing values/rows, length=' + (Array.isArray(arr) ? arr.length : typeof arr);
-          parsed = parseExcelApiResponse(arr, ch);
+          parsed = parseExcelApiResponse(excelData.values || excelData.rows, ch);
         } else if (excelData.sheets || excelData.worksheets) {
           const sheet = (excelData.sheets || excelData.worksheets)[0];
-          const arr = sheet.values || sheet.rows || sheet.data || [];
-          window._lastExcelDebug += '\nusing sheets[0], keys=' + Object.keys(sheet).join(',') + ', dataLen=' + arr.length;
-          parsed = parseExcelApiResponse(arr, ch);
+          parsed = parseExcelApiResponse(sheet.values || sheet.rows || sheet.data || [], ch);
         } else {
-          throw new Error('Excel API 응답 구조 미확인: ' + excelStr.substring(0, 500));
+          throw new Error('Excel API 응답 구조 미확인: ' + excelStr.substring(0, 800));
         }
-      } catch (excelErr) {
-        console.warn(ch.label + ' excel/files/read 실패:', excelErr.message);
-        // 방법 2: POST download + SheetJS 파싱 (fallback) — local_path 필수
-        try {
-          status.textContent = ch.label + ' 파일 다운로드 중 (fallback)...';
-          const buf = await teamsDownloadFile(ch.teamId, ch.channelId, { local_path: filePath });
-          parsed = parseTeamsExcel(buf);
-        } catch (dlErr) {
-          throw new Error(
-            excelErr.message + '\n[fallback] ' + dlErr.message +
-            '\n\n[파일 속성]\n' + targetInfo.substring(0, 600)
-          );
-        }
+      } catch (err) {
+        throw new Error(err.message + '\n\n[파일 속성]\n' + targetInfo.substring(0, 600));
       }
 
       if (parsed && parsed.length > 0) {
