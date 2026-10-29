@@ -1,0 +1,12 @@
+{
+  "name": "mlb-acc-production-v3",
+  "version": "1.0.0",
+  "description": "MLB ACC 생산현황 대시보드 v3 - Teams 연동",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  }
+}

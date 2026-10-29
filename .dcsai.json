@@ -1,0 +1,8 @@
+{
+  "slug": "mlb-acc-production-v3",
+  "displayName": "MLB ACC 생산현황 v3",
+  "runtime": "node",
+  "start": "npm start",
+  "port": 3000,
+  "appId": "ae73a22a-2cd5-4b4a-9e85-54103b7c3344"
+}
