@@ -2394,65 +2394,39 @@ async function connectTeams() {
 
       let parsed = null;
 
-      // file_path 추출: webUrl에서 서버 상대 경로, 또는 path/name 사용
-      const filePath = target.serverRelativeUrl
-        || target.path
-        || (() => {
-            try {
-              const u = new URL(target.webUrl);
-              const match = u.pathname.match(/\/sites\/[^/]+\/[^/]+\/.+/);
-              return match ? match[0] : null;
-            } catch { return null; }
-          })()
-        || target.name;
-
-      // Step 1: POST download → 서버에 파일 다운로드 → downloaded_files 경로 획득
-      // Step 2: GET excel/files/read → 해당 경로로 Excel 읽기
+      // downloadUrl이 있으면 직접 다운로드 (임시 인증 토큰 포함) → SheetJS 파싱
+      // downloadUrl 없으면 백엔드 프록시로 다운로드
       try {
-        status.textContent = ch.label + ' 파일 다운로드 중...';
-        // download API는 JSON 응답 반환 (바이너리가 아님)
-        const dlRes = await fetch(`${DCSAI_ORIGIN}/server/projects/${TEAMS_PROJECT}/ms/${ch.teamId}/channels/${ch.channelId}/files/download`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ local_path: filePath }),
-        });
-        if (!dlRes.ok) {
-          const errText = await dlRes.text().catch(() => '');
-          throw new Error('Download failed: ' + dlRes.status + ' ' + errText.substring(0, 500));
-        }
-        const dlData = await dlRes.json();
-        console.log(ch.label + ' download response:', JSON.stringify(dlData).substring(0, 500));
+        status.textContent = ch.label + ' Excel 다운로드 중...';
 
-        if (!dlData.success || !dlData.downloaded_files || dlData.downloaded_files.length === 0) {
-          throw new Error('Download 응답에 파일 경로 없음: ' + JSON.stringify(dlData).substring(0, 500));
-        }
-
-        // Step 2: downloaded_files[0]을 file_path로 excel/files/read 호출
-        const serverFilePath = dlData.downloaded_files[0];
-        status.textContent = ch.label + ' Excel 읽기 중...';
-        const excelData = await teamsReadExcel({ file_path: serverFilePath });
-        const excelStr = JSON.stringify(excelData).substring(0, 1500);
-        console.log(ch.label + ' excel/files/read 성공:', excelStr);
-
-        // 디버그 정보
-        const keys = typeof excelData === 'object' && excelData !== null ? Object.keys(excelData) : [];
-        const isArr = Array.isArray(excelData);
-        window._lastExcelDebug = 'download path: ' + serverFilePath +
-          '\ntype=' + typeof excelData + ', isArray=' + isArr + ', keys=[' + keys.join(',') + ']' +
-          '\nraw(500): ' + excelStr.substring(0, 500);
-
-        // 서버 응답 형태에 따라 파싱
-        if (isArr) {
-          parsed = parseExcelApiResponse(excelData, ch);
-        } else if (excelData.values || excelData.rows) {
-          parsed = parseExcelApiResponse(excelData.values || excelData.rows, ch);
-        } else if (excelData.sheets || excelData.worksheets) {
-          const sheet = (excelData.sheets || excelData.worksheets)[0];
-          parsed = parseExcelApiResponse(sheet.values || sheet.rows || sheet.data || [], ch);
+        let buf;
+        if (target.downloadUrl) {
+          // 방법 1: downloadUrl 직접 다운로드 (CORS 허용 시)
+          try {
+            const dlRes = await fetch(target.downloadUrl);
+            if (!dlRes.ok) throw new Error('direct download ' + dlRes.status);
+            buf = await dlRes.arrayBuffer();
+          } catch (directErr) {
+            console.warn('Direct download failed (CORS?), trying proxy:', directErr.message);
+            // 방법 2: 백엔드 프록시 경유
+            const proxyRes = await fetch('/api/download-proxy', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ url: target.downloadUrl }),
+            });
+            if (!proxyRes.ok) {
+              const errText = await proxyRes.text().catch(() => '');
+              throw new Error('Proxy download failed: ' + proxyRes.status + ' ' + errText.substring(0, 300));
+            }
+            buf = await proxyRes.arrayBuffer();
+          }
         } else {
-          throw new Error('Excel API 응답 구조 미확인: ' + excelStr.substring(0, 800));
+          throw new Error('downloadUrl이 파일 속성에 없음');
         }
+
+        console.log(ch.label + ' downloaded ' + buf.byteLength + ' bytes');
+        status.textContent = ch.label + ' Excel 파싱 중...';
+        parsed = parseTeamsExcel(buf);
       } catch (err) {
         throw new Error(err.message + '\n\n[파일 속성]\n' + targetInfo.substring(0, 600));
       }
