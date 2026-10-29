@@ -762,8 +762,8 @@ function renderStatus(season, records) {
 
   // ── 미입고 사유 분해 (발주 - 입고, PO별 실제 gap 기준) ──
   const recvGap = a.qty - a.stor;
-  let inTransitQty = 0, confirmedShortQty = 0, noShipQty = 0, overRecvQty = 0;
-  const recvReasonRecs = { transit:[], short:[], noship:[], over:[] };
+  let inTransitQty = 0, confirmedShortQty = 0, shortUncertainQty = 0, addNotDueRecvQty = 0, addOverdueRecvQty = 0, overRecvQty = 0;
+  const recvReasonRecs = { transit:[], short:[], shortUncertain:[], addNotDue:[], addOverdue:[], over:[] };
   for (const r of recs) {
     const poGap = r.ordQty - r.storQty; // PO별 실제 gap
     const ss = r.sourcingStatus || '';
@@ -771,16 +771,20 @@ function renderStatus(season, records) {
     if (poGap > 0) {
       // 미입고 수량이 있는 PO
       if (r.shipped === 0) {
-        // 미출고: 전량 출고대기
-        noShipQty += poGap; recvReasonRecs.noship.push(r);
+        // 미출고 PO: ADD 도래 여부로 분기
+        if (r.addDt && r.addDt < today) {
+          addOverdueRecvQty += poGap; recvReasonRecs.addOverdue.push(r);
+        } else {
+          addNotDueRecvQty += poGap; recvReasonRecs.addNotDue.push(r);
+        }
       } else if (confirmed) {
         // GR 완료: 전체 gap이 쇼트확정
         confirmedShortQty += poGap; recvReasonRecs.short.push(r);
       } else {
-        // 진행중: 출고대기 + 미도착으로 분리
-        const unshipped = Math.max(0, r.ordQty - r.shipped); // 안 보낸 부분
-        const unreceived = Math.max(0, Math.min(r.shipped, r.ordQty) - r.storQty); // 보냈는데 안 온 부분
-        if (unshipped > 0) { noShipQty += unshipped; if (!recvReasonRecs.noship.includes(r)) recvReasonRecs.noship.push(r); }
+        // 진행중: 쇼트미확정(미출고잔량) + 미도착(운송중)으로 분리
+        const unshipped = Math.max(0, r.ordQty - r.shipped); // 안 보낸 부분 → 쇼트미확정
+        const unreceived = Math.max(0, Math.min(r.shipped, r.ordQty) - r.storQty); // 보냈는데 안 온 부분 → 운송중
+        if (unshipped > 0) { shortUncertainQty += unshipped; if (!recvReasonRecs.shortUncertain.includes(r)) recvReasonRecs.shortUncertain.push(r); }
         if (unreceived > 0) { inTransitQty += unreceived; recvReasonRecs.transit.push(r); }
       }
     } else if (poGap < 0) {
@@ -860,7 +864,9 @@ function renderStatus(season, records) {
   h += '<table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid #dee2e6"><th style="text-align:left;padding:2px 6px;color:#495057">용어</th><th style="text-align:left;padding:2px 6px;color:#495057">설명</th><th style="text-align:left;padding:2px 6px;color:#495057">예시</th></tr></thead><tbody>';
   h += '<tr style="border-bottom:1px solid #f1f3f5"><td style="padding:2px 6px;color:#495057;font-weight:500;white-space:nowrap">미도착(운송중)</td><td style="padding:2px 6px;color:#868e96">출고됐지만 DC에 아직 미도착</td><td style="padding:2px 6px;color:#868e96">출고1000 → 입고700, 300은 운송중</td></tr>';
   h += '<tr style="border-bottom:1px solid #f1f3f5"><td style="padding:2px 6px;color:#495057;font-weight:500;white-space:nowrap">쇼트확정</td><td style="padding:2px 6px;color:#868e96">GR완료, 입고부족 확정 (추가입고 없음)</td><td style="padding:2px 6px;color:#868e96">발주1000 입고900 + GR완료 → 100 쇼트</td></tr>';
-  h += '<tr style="border-bottom:1px solid #f1f3f5"><td style="padding:2px 6px;color:#495057;font-weight:500;white-space:nowrap">쇼트 미확정</td><td style="padding:2px 6px;color:#868e96">GR미완료, 추가 출고·입고 가능</td><td style="padding:2px 6px;color:#868e96">발주1000 출고500 입고500, GR미완료 → 500 미확정</td></tr>';
+  h += '<tr style="border-bottom:1px solid #f1f3f5"><td style="padding:2px 6px;color:#495057;font-weight:500;white-space:nowrap">쇼트 미확정</td><td style="padding:2px 6px;color:#868e96">출고O, 전량/부분 입고완료, GR미완료</td><td style="padding:2px 6px;color:#868e96">발주1000 출고500 입고500, GR미완료 → 잔량500</td></tr>';
+  h += '<tr style="border-bottom:1px solid #f1f3f5"><td style="padding:2px 6px;color:#495057;font-weight:500;white-space:nowrap">ADD 미도래</td><td style="padding:2px 6px;color:#868e96">ADD가 아직 도래하지 않아 미출고</td><td style="padding:2px 6px;color:#868e96">ADD 12/1 → 오늘 11/20, 아직 출고 전</td></tr>';
+  h += '<tr style="border-bottom:1px solid #f1f3f5"><td style="padding:2px 6px;color:#495057;font-weight:500;white-space:nowrap">ADD 경과 미출고</td><td style="padding:2px 6px;color:#868e96">ADD가 지났는데 출고 0인 PO</td><td style="padding:2px 6px;color:#868e96">ADD 10/1 → 오늘 11/20, 출고 0</td></tr>';
   h += '</tbody></table></div>';
   h += '<div class="kpi-val" style="color:#40c057">' + a.recvRate + '%</div>';
   h += '<div class="bar"><div class="bar-fill" style="width:' + Math.min(a.recvRate,100) + '%;background:#40c057"></div></div>';
@@ -869,7 +875,9 @@ function renderStatus(season, records) {
   h += '<b>미입고 사유 (' + fmt(recvGap) + 'pcs)</b>';
   h += reasonRow('r_transit', '미도착(운송중)', inTransitQty, recvReasonRecs.transit, '미입고');
   h += reasonRow('r_short', '쇼트확정', confirmedShortQty, recvReasonRecs.short, '쇼트수량');
-  h += reasonRow('r_noship', '쇼트 미확정', noShipQty, recvReasonRecs.noship, '잔량');
+  h += reasonRow('r_uncertain', '쇼트 미확정', shortUncertainQty, recvReasonRecs.shortUncertain, '잔량');
+  h += reasonRow('r_addnotdue', 'ADD 미도래', addNotDueRecvQty, recvReasonRecs.addNotDue, '잔량');
+  h += reasonRow('r_addoverdue', 'ADD 경과 미출고', addOverdueRecvQty, recvReasonRecs.addOverdue, '잔량');
   if (overRecvQty > 0) h += reasonRow('r_over', '초과입고 상계 (-)', overRecvQty, recvReasonRecs.over, '초과');
   h += '</div>';
   h += '<div class="kpi-sub">발주기준 — 이니셜 <b>' + fmt(iQty) + '</b>pcs (' + iQtyPct + '%) | 리오더 <b>' + fmt(rQty) + '</b>pcs (' + rQtyPct + '%)</div>';
@@ -1005,9 +1013,15 @@ function renderStatus(season, records) {
           h += '</tbody></table></div></div>';
         }
         const _cs = ca.comboSimple;
+        // 미출고 PO를 ADD 미도래 / ADD 경과로 분리
+        const _noShipRecs = cr.filter(r => classify7(r) === '미출고');
+        const _addNotDueQty = _noShipRecs.filter(r => !r.addDt || r.addDt >= today).reduce((s,r) => s + (r.ordQty - r.storQty), 0);
+        const _addOverdueQty = _noShipRecs.filter(r => r.addDt && r.addDt < today).reduce((s,r) => s + (r.ordQty - r.storQty), 0);
         const _statusSummary = [
           { label:'쇼트확정', val:(_cs['발주전량출고-쇼트확정']||0)+(_cs['파샬출고-쇼트확정']||0) },
-          { label:'쇼트 미확정', val:(_cs['파샬출고-쇼트미확정']||0)+(_cs['미출고']||0) },
+          { label:'쇼트 미확정', val:(_cs['파샬출고-쇼트미확정']||0) },
+          { label:'ADD 미도래', val: _addNotDueQty },
+          { label:'ADD 경과', val: _addOverdueQty },
           { label:'운송중', val: ca.inTransit },
           { label:'부분도착', val:(_cs['발주전량출고-부분도착']||0)+(_cs['파샬출고-부분도착']||0) },
           { label:'미도착', val:(_cs['발주전량출고-미도착']||0)+(_cs['파샬출고-미도착']||0) },
