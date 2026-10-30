@@ -229,7 +229,7 @@ async function teamsCall(path, init) {
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
     let msg = res.statusText;
-    try { const j = JSON.parse(errText); msg = j.error?.message || j.detail || errText.substring(0, 300); } catch(_) { msg = errText.substring(0, 300); }
+    try { const j = JSON.parse(errText); msg = j.error?.message || (Array.isArray(j.detail) ? JSON.stringify(j.detail) : j.detail) || errText.substring(0, 300); } catch(_) { msg = errText.substring(0, 300); }
     throw new Error(`Teams API ${res.status}: ${msg}`);
   }
   const text = await res.text();
