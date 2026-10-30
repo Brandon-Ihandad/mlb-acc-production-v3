@@ -2932,7 +2932,114 @@ function buildPushMailExcelBase64(vendor, ppItems, topItems) {
   return XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
 }
 
-function buildPushMailHtml(vendor, ppItems, topItems) {
+function buildPushMailChartBase64(vendor, ppItems, topItems) {
+  const isEn = ['FOREMOST','NTRX'].includes(vendor);
+  // 데이터 준비: 스타일+컬러 라벨, D-day 값, PP/TOP 구분
+  const items = [];
+  for (const r of ppItems) {
+    const dd = dateDiffDays(r.pp.cfmDue);
+    items.push({ label: r.style + '/' + (r.color||'-'), dday: dd, type: 'PP' });
+  }
+  for (const r of topItems) {
+    const dd = dateDiffDays(r.top.cfmDue);
+    items.push({ label: r.style + '/' + (r.color||'-'), dday: dd, type: 'TOP' });
+  }
+  // D-day 오름차순 (가장 심각한 것이 위)
+  items.sort((a, b) => a.dday - b.dday);
+
+  const rowH = 22, padTop = 60, padBot = 30, padL = 150, padR = 80;
+  const chartW = 420;
+  const W = padL + chartW + padR;
+  const H = padTop + items.length * rowH + padBot;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W * 2; canvas.height = H * 2;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(2, 2);
+
+  // 배경
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+
+  // 제목
+  ctx.fillStyle = '#222';
+  ctx.font = 'bold 13px Malgun Gothic, sans-serif';
+  ctx.fillText((isEn ? 'CFM DUE Status — ' : 'CFM DUE 현황 — ') + vendor, padL, 20);
+
+  // 범례
+  ctx.font = '10px Malgun Gothic, sans-serif';
+  ctx.fillStyle = '#d32f2f'; ctx.fillRect(padL, 30, 10, 10);
+  ctx.fillStyle = '#333'; ctx.fillText(isEn ? 'Overdue' : '기한 초과', padL + 14, 39);
+  ctx.fillStyle = '#ff9800'; ctx.fillRect(padL + 80, 30, 10, 10);
+  ctx.fillStyle = '#333'; ctx.fillText('D-Day', padL + 94, 39);
+  ctx.fillStyle = '#1976d2'; ctx.fillRect(padL + 140, 30, 10, 10);
+  ctx.fillStyle = '#333'; ctx.fillText(isEn ? 'Remaining' : '잔여', padL + 154, 39);
+  // PP/TOP 범례
+  ctx.fillStyle = '#333'; ctx.font = '9px Malgun Gothic, sans-serif';
+  ctx.fillText('● PP', padL + 220, 39);
+  ctx.fillText('▲ TOP', padL + 260, 39);
+
+  // 스케일 계산
+  const maxAbs = Math.max(30, ...items.map(d => Math.abs(d.dday)));
+  const barScale = chartW / (maxAbs * 2);
+  const zeroX = padL + chartW / 2;
+
+  // 0선
+  ctx.strokeStyle = '#999'; ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.moveTo(zeroX, padTop - 5); ctx.lineTo(zeroX, H - padBot); ctx.stroke();
+  ctx.fillStyle = '#999'; ctx.font = '9px Malgun Gothic, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(isEn ? 'Today' : '오늘', zeroX, padTop - 8);
+  ctx.textAlign = 'left';
+
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const y = padTop + i * rowH;
+    const barH = 14;
+
+    // 라벨 (왼쪽)
+    ctx.fillStyle = '#333'; ctx.font = '10px Malgun Gothic, sans-serif';
+    ctx.textAlign = 'right';
+    const typeIcon = it.type === 'PP' ? '● ' : '▲ ';
+    ctx.fillText(typeIcon + it.label, padL - 8, y + barH - 3);
+    ctx.textAlign = 'left';
+
+    // 가로 줄
+    ctx.strokeStyle = '#eee'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(padL, y + barH + 2); ctx.lineTo(padL + chartW, y + barH + 2); ctx.stroke();
+
+    // 바
+    const barLen = Math.abs(it.dday) * barScale;
+    if (it.dday < 0) {
+      // 초과: 0선 왼쪽으로 (빨강)
+      ctx.fillStyle = '#d32f2f';
+      ctx.fillRect(zeroX - barLen, y + 1, barLen, barH);
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 9px Malgun Gothic, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText('D+' + Math.abs(it.dday), zeroX - 3, y + barH - 3);
+    } else if (it.dday === 0) {
+      // D-Day: 오렌지 마커
+      ctx.fillStyle = '#ff9800';
+      ctx.fillRect(zeroX - 2, y + 1, 4, barH);
+      ctx.fillStyle = '#ff9800'; ctx.font = 'bold 9px Malgun Gothic, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('D-Day', zeroX + 6, y + barH - 3);
+    } else {
+      // 잔여: 0선 오른쪽으로 (파랑)
+      ctx.fillStyle = '#1976d2';
+      ctx.fillRect(zeroX, y + 1, barLen, barH);
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 9px Malgun Gothic, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('D-' + it.dday, zeroX + 3, y + barH - 3);
+    }
+    ctx.textAlign = 'left';
+  }
+
+  // base64 PNG (data: 접두사 제거)
+  return canvas.toDataURL('image/png').split(',')[1];
+}
+
+function buildPushMailHtml(vendor, ppItems, topItems, hasChart) {
   const isEn = ['FOREMOST','NTRX'].includes(vendor);
   const mail = TEAMS_VENDOR_MAIL[vendor];
   const name = mail ? mail.name + (isEn ? '' : '님') : vendor + (isEn ? '' : ' 담당자님');
@@ -2942,6 +3049,11 @@ function buildPushMailHtml(vendor, ppItems, topItems) {
   h += '<p>' + (isEn
     ? 'Below is the list of styles approaching or past the CFM deadline.<br>Please review the status, check ETD, and notify us of any issues.'
     : '안녕하세요, MLB 소싱팀입니다.<br>컨펌 기한이 임박하거나 경과한 스타일 리스트를 전달드립니다.<br>확인하시어 ETD 점검 및 이슈 발생 시 알려주시기 바랍니다.') + '</p>';
+
+  // 차트 이미지 (cid로 참조)
+  if (hasChart) {
+    h += '<p><img src="cid:cfm_chart" style="max-width:100%;height:auto" /></p>';
+  }
 
   const thStyle = 'style="border:1px solid #ccc;padding:4px 8px;background:#f5f5f5;font-size:12px"';
   const tdStyle = 'style="border:1px solid #ccc;padding:4px 8px;font-size:12px"';
@@ -2985,7 +3097,8 @@ async function composePushMail(vendor) {
   if (btn) { btn.disabled = true; btn.textContent = '발송 중...'; }
 
   try {
-    const htmlBody = buildPushMailHtml(vendor, ppItems, topItems);
+    const chartBase64 = buildPushMailChartBase64(vendor, ppItems, topItems);
+    const htmlBody = buildPushMailHtml(vendor, ppItems, topItems, true);
     const xlsxBase64 = buildPushMailExcelBase64(vendor, ppItems, topItems);
     const today = new Date().toISOString().slice(0,10).replace(/-/g,'');
     const filename = 'CFM_DUE_' + vendor + '_' + today + '.xlsx';
@@ -3005,11 +3118,19 @@ async function composePushMail(vendor) {
         subject: subject,
         html: htmlBody,
         reply_to: 'miheepark@fnfcorp.com',
-        attachments: [{
-          filename: filename,
-          content_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          content_base64: xlsxBase64,
-        }],
+        attachments: [
+          {
+            filename: 'cfm_due_chart.png',
+            content_type: 'image/png',
+            content_base64: chartBase64,
+            content_id: 'cfm_chart',
+          },
+          {
+            filename: filename,
+            content_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            content_base64: xlsxBase64,
+          },
+        ],
       }),
     });
 
