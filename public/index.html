@@ -121,7 +121,6 @@ table.dt tr:hover{background:#f8f9fa}
 .pm-footer button{padding:8px 20px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:none}
 .pm-btn-primary{background:#228be6;color:#fff}.pm-btn-primary:hover{background:#1c7ed6}
 .pm-btn-secondary{background:#f1f3f5;color:#495057}.pm-btn-secondary:hover{background:#e9ecef}
-.pm-preview{background:#f8f9fa;border:1px solid #e9ecef;border-radius:8px;padding:14px;font-size:11px;line-height:1.7;white-space:pre-wrap;max-height:300px;overflow-y:auto;margin-top:12px;display:none}
 .vendor-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;border:1px solid #e9ecef;background:#f8f9fa;color:#495057;transition:all .12s}
 .vendor-chip:hover{background:#e9ecef}
 .vendor-chip.active{background:#228be6;color:#fff;border-color:#228be6}
@@ -2714,7 +2713,7 @@ function renderTeamsSampleContent(vendor) {
   // 상세 테이블
   h += '<div class="card" style="margin-top:12px"><div class="card-title" style="display:flex;align-items:center;justify-content:space-between">';
   h += '<span>' + vendor + ' PPS/TOP Status 상세</span>';
-  h += '<button onclick="openPushMailModal(\'' + vendor.replace(/'/g,"\\'") + '\')" style="padding:5px 14px;border-radius:6px;border:1px solid #fa5252;background:#fff5f5;color:#c92a2a;font-size:11px;font-weight:600;cursor:pointer">푸쉬메일</button>';
+  h += '<button onclick="openPushMailModal(\'' + vendor.replace(/'/g,"\\'") + '\')" style="padding:5px 14px;border-radius:6px;border:1px solid #fa5252;background:#fff5f5;color:#c92a2a;font-size:11px;font-weight:600;cursor:pointer">미확정 알림</button>';
   h += '</div>';
   const tblId = 'teams_tbl_' + vendor.replace(/\W/g,'');
   h += '<div class="tbl-wrap" style="max-height:600px"><table class="dt" id="' + tblId + '"><thead><tr>';
@@ -2787,13 +2786,13 @@ function openPushMailModal(vendor) {
   const data = window._teamsData[vendor];
   if (!data || data.length === 0) return alert('데이터가 없습니다. Teams 연결을 먼저 해주세요.');
 
-  // 필터링: PP - CFM DUE 30일 이내 & PP CFM 미입력, TOP - CFM DUE 21일 이내 & TOP CFM 미입력
-  const ppOverdue = data.filter(r => r.pp.cfmDue && !r.pp.mlbCfm && dateDiffDays(r.pp.cfmDue) <= 30)
+  // 필터링: 기한 경과만 (PP: CFM DUE-30일 경과, TOP: CFM DUE-21일 경과)
+  const ppOverdue = data.filter(r => r.pp.cfmDue && !r.pp.mlbCfm && dateDiffDays(r.pp.cfmDue) - 30 < 0)
     .sort((a,b) => (a.pp.cfmDue||'').localeCompare(b.pp.cfmDue||''));
-  const topOverdue = data.filter(r => r.top.cfmDue && !r.top.mlbCfm && dateDiffDays(r.top.cfmDue) <= 21)
+  const topOverdue = data.filter(r => r.top.cfmDue && !r.top.mlbCfm && dateDiffDays(r.top.cfmDue) - 21 < 0)
     .sort((a,b) => (a.top.cfmDue||'').localeCompare(b.top.cfmDue||''));
 
-  if (ppOverdue.length === 0 && topOverdue.length === 0) return alert('푸쉬 대상 스타일이 없습니다.\n\nPP: CFM DUE 30일 이내 미확정 0건\nTOP: CFM DUE 21일 이내 미확정 0건');
+  if (ppOverdue.length === 0 && topOverdue.length === 0) return alert('기한 경과 스타일이 없습니다.\n\nPP: CFM DUE 30일전 기한 경과 0건\nTOP: CFM DUE 21일전 기한 경과 0건');
 
   // 모달 생성
   const overlay = document.createElement('div');
@@ -2837,14 +2836,11 @@ function openPushMailModal(vendor) {
   mh += buildRows(topOverdue, 'top');
   mh += '</div>';
 
-  // Preview
-  mh += '<div id="pm-preview" class="pm-preview"></div>';
   mh += '</div>';
 
   // Footer
   mh += '<div class="pm-footer">';
-  mh += '<button class="pm-btn-secondary" onclick="previewPushMail(\'' + vendor.replace(/'/g,"\\'") + '\')">미리보기</button>';
-  mh += '<button class="pm-btn-primary" onclick="composePushMail(\'' + vendor.replace(/'/g,"\\'") + '\')">Outlook에서 메일 작성</button>';
+  mh += '<button class="pm-btn-primary" onclick="composePushMail(\'' + vendor.replace(/'/g,"\\'") + '\')">메일 발송</button>';
   mh += '</div></div>';
 
   overlay.innerHTML = mh;
@@ -2912,34 +2908,33 @@ function buildPushMailContent(vendor, ppItems, topItems) {
   return body;
 }
 
-function previewPushMail(vendor) {
-  const { ppItems, topItems } = getSelectedPmItems();
-  if (ppItems.length === 0 && topItems.length === 0) return alert('선택된 스타일이 없습니다.');
-  const body = buildPushMailContent(vendor, ppItems, topItems);
-  const el = document.getElementById('pm-preview');
-  el.style.display = 'block';
-  el.textContent = body;
-}
-
-function composePushMail(vendor) {
+async function composePushMail(vendor) {
   const { ppItems, topItems } = getSelectedPmItems();
   if (ppItems.length === 0 && topItems.length === 0) return alert('선택된 스타일이 없습니다.');
 
   const mail = TEAMS_VENDOR_MAIL[vendor];
-  const to = mail ? mail.to.join(';') : '';
-  const cc = mail ? mail.cc.join(';') : '';
+  const to = mail ? mail.to : [];
+  const cc = mail ? mail.cc : [];
   const totalCount = ppItems.length + topItems.length;
   const subject = '[MLB ACC] PPS/TOP Sample CFM 확인 요청 (' + totalCount + '건) - ' + vendor;
-  const body = buildPushMailContent(vendor, ppItems, topItems);
+  const bodyText = buildPushMailContent(vendor, ppItems, topItems);
 
-  // mailto: → Outlook 앱에서 초안 열기
-  let url = 'mailto:' + encodeURIComponent(to);
-  url += '?cc=' + encodeURIComponent(cc);
-  url += '&subject=' + encodeURIComponent(subject);
-  url += '&body=' + encodeURIComponent(body);
+  const btn = document.querySelector('#pm-overlay .pm-btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = '발송 중...'; }
 
-  window.location.href = url;
-  document.getElementById('pm-overlay').remove();
+  try {
+    const res = await teamsCall('/mail/send', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ to, cc, subject, body: bodyText }),
+    });
+    alert('메일이 성공적으로 발송되었습니다. (' + totalCount + '건)');
+    document.getElementById('pm-overlay').remove();
+  } catch (e) {
+    console.error('[composePushMail] error:', e);
+    alert('메일 발송 실패: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '메일 발송'; }
+  }
 }
 
 // ── Init ──
