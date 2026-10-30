@@ -2908,6 +2908,37 @@ function buildPushMailContent(vendor, ppItems, topItems) {
   return body;
 }
 
+function buildPushMailExcel(vendor, ppItems, topItems) {
+  const wb = XLSX.utils.book_new();
+  const isEn = ['FOREMOST','NTRX'].includes(vendor);
+  const hdr = isEn ? ['Season','Style','Color','Type','CFM DUE','Status'] : ['시즌','스타일','컬러','구분','CFM DUE','상태'];
+
+  const rows = [];
+  for (const r of ppItems) {
+    const dd = dateDiffDays(r.pp.cfmDue);
+    const tag = dd < 0 ? 'D+' + Math.abs(dd) + (isEn ? ' overdue' : ' 초과') : dd === 0 ? 'D-Day' : 'D-' + dd;
+    rows.push([r.season||'-', r.style, r.color||'-', 'PP', r.pp.cfmDue, tag]);
+  }
+  for (const r of topItems) {
+    const dd = dateDiffDays(r.top.cfmDue);
+    const tag = dd < 0 ? 'D+' + Math.abs(dd) + (isEn ? ' overdue' : ' 초과') : dd === 0 ? 'D-Day' : 'D-' + dd;
+    rows.push([r.season||'-', r.style, r.color||'-', 'TOP', r.top.cfmDue, tag]);
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet([hdr, ...rows]);
+  ws['!cols'] = [{wch:8},{wch:14},{wch:8},{wch:6},{wch:12},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, ws, 'CFM DUE');
+
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const today = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  a.href = url; a.download = 'CFM_DUE_' + vendor + '_' + today + '.xlsx';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 200);
+}
+
 function composePushMail(vendor) {
   const { ppItems, topItems } = getSelectedPmItems();
   if (ppItems.length === 0 && topItems.length === 0) return alert('선택된 스타일이 없습니다.');
@@ -2916,23 +2947,29 @@ function composePushMail(vendor) {
   const to = mail ? mail.to.join(';') : '';
   const cc = mail ? mail.cc.join(';') : '';
   const totalCount = ppItems.length + topItems.length;
-  const subject = '[MLB ACC] PPS/TOP Sample CFM 확인 요청 (' + totalCount + '건) - ' + vendor;
+  const subject = '[MLB] PP/TOP Sample CFM DUE 임박/경과 스타일 확인 요청 (' + totalCount + '건) - ' + vendor;
   const bodyText = buildPushMailContent(vendor, ppItems, topItems);
 
+  // 1) Excel 첨부용 파일 자동 다운로드
+  buildPushMailExcel(vendor, ppItems, topItems);
+
+  // 2) mailto: 로 Outlook 초안 열기
   const mailtoUrl = 'mailto:' + encodeURIComponent(to)
     + '?cc=' + encodeURIComponent(cc)
     + '&subject=' + encodeURIComponent(subject)
     + '&body=' + encodeURIComponent(bodyText);
 
-  // iframe 내부에서 mailto: 차단 우회 — 새 창으로 열기
-  const w = window.open(mailtoUrl, '_blank');
-  if (!w) {
-    // 팝업 차단 시 hidden link + target=_top 시도
-    const a = document.createElement('a');
-    a.href = mailtoUrl; a.target = '_top'; a.style.display = 'none';
-    document.body.appendChild(a); a.click();
-    setTimeout(() => a.remove(), 200);
-  }
+  setTimeout(() => {
+    const w = window.open(mailtoUrl, '_blank');
+    if (!w) {
+      const a = document.createElement('a');
+      a.href = mailtoUrl; a.target = '_top'; a.style.display = 'none';
+      document.body.appendChild(a); a.click();
+      setTimeout(() => a.remove(), 200);
+    }
+  }, 500);
+
+  alert('Excel 파일이 다운로드됩니다. Outlook 메일 초안에 첨부해주세요.');
   document.getElementById('pm-overlay').remove();
 }
 
