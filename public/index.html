@@ -296,69 +296,117 @@ function parseExcelApiResponse(rows, ch) {
 // Excel 파싱: PPS/TOP STATUS 시트 → 배열 (SheetJS - fallback용)
 function parseTeamsExcel(arrayBuffer) {
   const wb = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array', cellDates: true });
-  // 디버그: 시트 정보, 처음 15행 샘플 데이터
-  const sheetNames = wb.SheetNames;
-  const ws = wb.Sheets[sheetNames[0]];
-  if (!ws) { window._lastExcelDebug = 'SheetJS: 시트 없음. sheetNames=' + JSON.stringify(sheetNames); return []; }
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  if (!ws) { window._lastExcelDebug = 'SheetJS: 시트 없음'; return []; }
   const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-  // 처음 15행 × 처음 10열 샘플
-  const sample = [];
-  for (let r = 0; r <= Math.min(14, range.e.r); r++) {
-    const row = [];
-    for (let c = 0; c <= Math.min(9, range.e.c); c++) {
-      const cell = ws[XLSX.utils.encode_cell({r, c})];
-      row.push(cell ? String(cell.v).substring(0, 30) : '');
-    }
-    sample.push('R' + (r+1) + ': ' + row.join(' | '));
-  }
-  window._lastExcelDebug = 'SheetJS fallback\nsheets: ' + JSON.stringify(sheetNames) +
-    '\nrange: ' + ws['!ref'] + ' (rows: ' + (range.e.r+1) + ', cols: ' + (range.e.c+1) + ')' +
-    '\n\n' + sample.join('\n');
-  console.log('parseTeamsExcel debug:', window._lastExcelDebug);
+  const maxCol = Math.min(range.e.c, 40);
+  const cv = (r, c) => { const cl = ws[XLSX.utils.encode_cell({r, c})]; return cl ? cl.v : null; };
+  const fmtDate = (v) => {
+    if (!v) return '';
+    if (v instanceof Date) return v.getFullYear() + '-' + String(v.getMonth()+1).padStart(2,'0') + '-' + String(v.getDate()).padStart(2,'0');
+    if (typeof v === 'number' && v > 40000 && v < 60000) { const d = new Date((v - 25569) * 86400000); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+    return String(v);
+  };
+  const colLetter = (c) => c < 26 ? String.fromCharCode(65+c) : String.fromCharCode(64+Math.floor(c/26)) + String.fromCharCode(65+(c%26));
 
-  const results = [];
-  for (let r = 9; r <= range.e.r; r++) { // 0-indexed row 9 = Excel row 10
-    const cellB = ws[XLSX.utils.encode_cell({r, c:1})];
-    if (!cellB || !cellB.v) continue; // skip empty rows
-    const getVal = (col) => {
-      const cell = ws[XLSX.utils.encode_cell({r, c: col})];
-      return cell ? cell.v : null;
-    };
-    const fmtDate = (v) => {
-      if (!v) return '';
-      if (v instanceof Date) {
-        const y = v.getFullYear(), m = String(v.getMonth()+1).padStart(2,'0'), d = String(v.getDate()).padStart(2,'0');
-        return y + '-' + m + '-' + d;
+  // ── 1. 헤더 행 탐지: STYLE이 포함된 행 찾기 ──
+  let headerRow = -1;
+  let headers = []; // col index → header string (uppercase)
+  for (let r = 0; r <= Math.min(15, range.e.r); r++) {
+    const rh = [];
+    let hasStyle = false;
+    for (let c = 0; c <= maxCol; c++) {
+      const v = cv(r, c);
+      const h = v ? String(v).trim().toUpperCase() : '';
+      rh.push(h);
+      if (h.includes('STYLE')) hasStyle = true;
+    }
+    if (hasStyle) { headerRow = r; headers = rh; break; }
+  }
+  if (headerRow < 0) { headerRow = 8; for (let c = 0; c <= maxCol; c++) { const v = cv(8, c); headers.push(v ? String(v).trim().toUpperCase() : ''); } }
+
+  // ── 2. 섹션 행 탐지 (헤더 위 행에서 PP/TOP 영역 경계 찾기) ──
+  let ppStartCol = -1, topStartCol = -1;
+  if (headerRow > 0) {
+    for (let c = 0; c <= maxCol; c++) {
+      const v = cv(headerRow - 1, c);
+      const s = v ? String(v).trim().toUpperCase() : '';
+      if (s.includes('PP') && ppStartCol < 0) ppStartCol = c;
+      if (s.includes('TOP') && topStartCol < 0) topStartCol = c;
+    }
+  }
+
+  // ── 3. 컬럼 매핑 (헤더명 + 섹션 위치 기반) ──
+  const cm = {}; // style, color, season, vendor, agreedEtd, ppDue, ppAtd, ppCfm, topDue, topAtd, topCfm, remark
+  const ppEtdCols = [], topEtdCols = [];
+
+  const isTopSection = (c) => topStartCol > 0 ? c >= topStartCol : false;
+  const isPpSection = (c) => ppStartCol > 0 ? (c >= ppStartCol && (topStartCol < 0 || c < topStartCol)) : false;
+
+  for (let c = 0; c < headers.length; c++) {
+    const h = headers[c];
+    if (!h) continue;
+    if (h.includes('STYLE') && !cm.style) cm.style = c;
+    else if (h.includes('COLOR') && !cm.color) cm.color = c;
+    else if ((h.includes('SEASON') || h.includes('시즌')) && !cm.season) cm.season = c;
+    else if (h.includes('AGREED') || h === 'AGREED ETD') cm.agreedEtd = c;
+    else if (h.includes('VENDOR') || h.includes('협력사') || h.includes('VENDER')) { if (!cm.vendor) cm.vendor = c; }
+    else if (h.includes('REMARK') || h.includes('NOTE')) cm.remark = c;
+    else if (h === 'ATD' || h.includes('ATD')) {
+      if (isTopSection(c) || cm.ppAtd !== undefined) cm.topAtd = c; else cm.ppAtd = c;
+    }
+    else if (h.includes('DUE') && !h.includes('ETD')) {
+      if (isTopSection(c) || cm.ppDue !== undefined) cm.topDue = c; else cm.ppDue = c;
+    }
+    else if (h.includes('CFM') || h.includes('CONFIRM')) {
+      if (h.includes('DUE')) {
+        if (isTopSection(c) || cm.ppDue !== undefined) cm.topDue = c; else cm.ppDue = c;
+      } else {
+        if (isTopSection(c) || cm.ppCfm !== undefined) cm.topCfm = c; else cm.ppCfm = c;
       }
-      return String(v);
-    };
+    }
+    else if (h.includes('ETD') && !h.includes('AGREED')) {
+      if (isTopSection(c)) topEtdCols.push(c); else ppEtdCols.push(c);
+    }
+  }
+
+  // ── 4. 디버그 정보 ──
+  const headerMap = headers.map((h, i) => h ? colLetter(i) + '=' + h : '').filter(Boolean).join(' | ');
+  const mappingInfo = Object.entries(cm).map(([k,v]) => k + ':' + colLetter(v)).join(', ');
+  window._lastExcelDebug = 'headerRow: ' + (headerRow+1) + ' (0-idx:' + headerRow + ')'
+    + '\nppStart:' + (ppStartCol>=0?colLetter(ppStartCol):'?') + ' topStart:' + (topStartCol>=0?colLetter(topStartCol):'?')
+    + '\nheaders: ' + headerMap
+    + '\nmapping: ' + mappingInfo
+    + '\nppETDs: [' + ppEtdCols.map(colLetter).join(',') + '] topETDs: [' + topEtdCols.map(colLetter).join(',') + ']';
+  console.log('parseTeamsExcel:', window._lastExcelDebug);
+
+  // ── 5. 데이터 파싱 ──
+  const results = [];
+  const styleCol = cm.style !== undefined ? cm.style : 1;
+  for (let r = headerRow + 1; r <= range.e.r; r++) {
+    const styleVal = cv(r, styleCol);
+    if (!styleVal) continue;
+    const ppEtds = ppEtdCols.map(c => fmtDate(cv(r, c)));
+    const topEtds = topEtdCols.map(c => fmtDate(cv(r, c)));
     results.push({
-      sku: getVal(0) || '',
-      style: getVal(1) || '',
-      color: getVal(2) || '',
-      vendor: getVal(3) || '',
-      agreedEtd: fmtDate(getVal(4)),
+      season: cm.season !== undefined ? String(cv(r, cm.season) || '') : '',
+      style: String(styleVal),
+      color: cm.color !== undefined ? String(cv(r, cm.color) || '') : '',
+      vendor: cm.vendor !== undefined ? String(cv(r, cm.vendor) || '') : '',
+      agreedEtd: cm.agreedEtd !== undefined ? fmtDate(cv(r, cm.agreedEtd)) : '',
       pp: {
-        cfmDue: fmtDate(getVal(5)),
-        etd1: fmtDate(getVal(6)),
-        etd2: fmtDate(getVal(7)),
-        etd3: fmtDate(getVal(8)),
-        etd4: fmtDate(getVal(9)),
-        etd5: fmtDate(getVal(10)),
-        atd: fmtDate(getVal(11)),
-        mlbCfm: fmtDate(getVal(12)),
+        cfmDue: cm.ppDue !== undefined ? fmtDate(cv(r, cm.ppDue)) : '',
+        etd1: ppEtds[0]||'', etd2: ppEtds[1]||'', etd3: ppEtds[2]||'', etd4: ppEtds[3]||'', etd5: ppEtds[4]||'',
+        atd: cm.ppAtd !== undefined ? fmtDate(cv(r, cm.ppAtd)) : '',
+        mlbCfm: cm.ppCfm !== undefined ? fmtDate(cv(r, cm.ppCfm)) : '',
       },
       top: {
-        cfmDue: fmtDate(getVal(13)),
-        etd1: fmtDate(getVal(14)),
-        etd2: fmtDate(getVal(15)),
-        etd3: fmtDate(getVal(16)),
-        etd4: fmtDate(getVal(17)),
-        etd5: fmtDate(getVal(18)),
-        atd: fmtDate(getVal(19)),
-        mlbCfm: fmtDate(getVal(20)),
+        cfmDue: cm.topDue !== undefined ? fmtDate(cv(r, cm.topDue)) : '',
+        etd1: topEtds[0]||'', etd2: topEtds[1]||'', etd3: topEtds[2]||'', etd4: topEtds[3]||'', etd5: topEtds[4]||'',
+        atd: cm.topAtd !== undefined ? fmtDate(cv(r, cm.topAtd)) : '',
+        mlbCfm: cm.topCfm !== undefined ? fmtDate(cv(r, cm.topCfm)) : '',
       },
-      remark: getVal(21) || '',
+      remark: cm.remark !== undefined ? String(cv(r, cm.remark) || '') : '',
     });
   }
   return results;
@@ -2635,6 +2683,7 @@ function renderTeamsSampleContent(vendor) {
   const tblId = 'teams_tbl_' + vendor.replace(/\W/g,'');
   h += '<div class="tbl-wrap" style="max-height:600px"><table class="dt" id="' + tblId + '"><thead><tr>';
   const cols = [
+    {l:'운영시즌',k:'season'},
     {l:'스타일',k:'style'},{l:'컬러',k:'color'},{l:'합의납기',k:'agreedEtd'},
     {l:'PP DUE',k:'pp.cfmDue'},{l:'PP 최종ETD',k:'pp._latestEtd'},{l:'PP ATD',k:'pp.atd'},{l:'PP CFM',k:'pp.mlbCfm'},
     {l:'TOP DUE',k:'top.cfmDue'},{l:'TOP 최종ETD',k:'top._latestEtd'},{l:'TOP ATD',k:'top.atd'},{l:'TOP CFM',k:'top.mlbCfm'},
