@@ -2768,13 +2768,13 @@ function renderTeamsSampleContent(vendor) {
   document.getElementById('teams-sample-content').innerHTML = h;
 }
 
-// ── Teams Vendor → VENDOR_CONTACTS key 매핑 ──
-const TEAMS_VENDOR_CONTACT_MAP = {
-  'UNIPAX': 'UNIPAX CO., LTD,',
-  'FOREMOST': 'Foremost',
-  'PNG': '주식회사 피앤지아이엔씨',
-  'NTRX': 'NTRX',
-  'YUPOONG': '㈜유풍',
+// ── Teams Vendor → 푸쉬메일 연락처 (리오더 메일과 동일) ──
+const TEAMS_VENDOR_MAIL = {
+  'UNIPAX':   { to:['johnpark@unipaxvn.com'], cc:['jeffchoi@hscrown.co.kr','hsc_sales07@unipaxvn.com','jechoi@fnfcorp.com','kimsh9131@fnfcorp.com'], name:'박찬형 차장' },
+  'FOREMOST': { to:['wangchenhao@4mostcaps.com'], cc:['cherry.c@4mostcaps.com','renying@4mostcaps.com','jechoi@fnfcorp.com','jhkim87@fnfcorp.com','yji216@fnfcorp.com'], name:'Lucas' },
+  'PNG':      { to:['chpark@pngcap.com'], cc:['sd2@pngcap.com','jechoi@fnfcorp.com','jhkim87@fnfcorp.com'], name:'박창호 부장' },
+  'NTRX':     { to:['rebecca@rxacc.com'], cc:['basten@rxacc.com','zhang@rxacc.com','july@rxacc.com','jechoi@fnfcorp.com','jhkim87@fnfcorp.com'], name:'Rebecca' },
+  'YUPOONG':  { to:['hjlee2@yupoong.co.kr'], cc:['jyyoo@yupoong.co.kr','thjung@yupoong.co.kr','jechoi@fnfcorp.com','yji216@fnfcorp.com'], name:'이호진 차장' },
 };
 
 function dateDiffDays(dateStr) {
@@ -2872,35 +2872,45 @@ function getSelectedPmItems() {
 }
 
 function buildPushMailContent(vendor, ppItems, topItems) {
-  const contact = VENDOR_CONTACTS[TEAMS_VENDOR_CONTACT_MAP[vendor]];
-  const name = contact ? contact.name : vendor + ' 담당자';
-  let body = 'Dear ' + name + ',\n\n';
-  body += '아래 스타일의 Sample 확인을 요청드립니다.\n';
-  body += '기한 내 CFM 처리 부탁드립니다.\n\n';
+  const mail = TEAMS_VENDOR_MAIL[vendor];
+  const name = mail ? mail.name + '님' : vendor + ' 담당자님';
+  const isEn = ['FOREMOST','NTRX'].includes(vendor);
+
+  let body = '';
+  if (isEn) {
+    body += 'Dear ' + (mail ? mail.name : vendor) + ',\n\n';
+    body += 'Below is the list of styles approaching or past the CFM deadline.\n';
+    body += 'Please review the status, check ETD, and notify us of any issues.\n\n';
+  } else {
+    body += name + ',\n\n';
+    body += '안녕하세요, MLB 소싱팀입니다.\n';
+    body += '컨펌 기한이 임박하거나 경과한 스타일 리스트를 전달드립니다.\n';
+    body += '확인하시어 ETD 점검 및 이슈 발생 시 알려주시기 바랍니다.\n\n';
+  }
 
   if (ppItems.length > 0) {
-    body += '━━━ PP Sample 미확정 (' + ppItems.length + '건) ━━━\n';
-    body += '시즌 | 스타일 | 컬러 | PP DUE | D-Day\n';
+    body += '■ PP Sample ' + (isEn ? 'Pending CFM' : '미확정') + ' (' + ppItems.length + (isEn ? ' styles)\n' : '건)\n');
+    body += (isEn ? 'Season | Style | Color | PP DUE | Status\n' : '시즌 | 스타일 | 컬러 | PP DUE | 상태\n');
     body += '─'.repeat(50) + '\n';
     for (const r of ppItems) {
       const dd = dateDiffDays(r.pp.cfmDue);
-      const tag = dd < 0 ? 'D+' + Math.abs(dd) : dd === 0 ? 'D-Day' : 'D-' + dd;
+      const tag = dd < 0 ? 'D+' + Math.abs(dd) + (isEn ? ' overdue' : ' 초과') : dd === 0 ? 'D-Day' : 'D-' + dd;
       body += (r.season||'-') + ' | ' + r.style + ' | ' + (r.color||'-') + ' | ' + r.pp.cfmDue + ' | ' + tag + '\n';
     }
     body += '\n';
   }
   if (topItems.length > 0) {
-    body += '━━━ TOP Sample 미확정 (' + topItems.length + '건) ━━━\n';
-    body += '시즌 | 스타일 | 컬러 | TOP DUE | D-Day\n';
+    body += '■ TOP Sample ' + (isEn ? 'Pending CFM' : '미확정') + ' (' + topItems.length + (isEn ? ' styles)\n' : '건)\n');
+    body += (isEn ? 'Season | Style | Color | TOP DUE | Status\n' : '시즌 | 스타일 | 컬러 | TOP DUE | 상태\n');
     body += '─'.repeat(50) + '\n';
     for (const r of topItems) {
       const dd = dateDiffDays(r.top.cfmDue);
-      const tag = dd < 0 ? 'D+' + Math.abs(dd) : dd === 0 ? 'D-Day' : 'D-' + dd;
+      const tag = dd < 0 ? 'D+' + Math.abs(dd) + (isEn ? ' overdue' : ' 초과') : dd === 0 ? 'D-Day' : 'D-' + dd;
       body += (r.season||'-') + ' | ' + r.style + ' | ' + (r.color||'-') + ' | ' + r.top.cfmDue + ' | ' + tag + '\n';
     }
     body += '\n';
   }
-  body += '확인 부탁드립니다.\n감사합니다.';
+  body += isEn ? 'Please confirm at your earliest convenience.\nThank you.' : '확인 부탁드립니다.\n감사합니다.';
   return body;
 }
 
@@ -2917,11 +2927,11 @@ function composePushMail(vendor) {
   const { ppItems, topItems } = getSelectedPmItems();
   if (ppItems.length === 0 && topItems.length === 0) return alert('선택된 스타일이 없습니다.');
 
-  const contact = VENDOR_CONTACTS[TEAMS_VENDOR_CONTACT_MAP[vendor]];
-  const to = contact ? contact.to.join(';') : '';
-  const cc = contact ? contact.cc.join(';') : '';
+  const mail = TEAMS_VENDOR_MAIL[vendor];
+  const to = mail ? mail.to.join(';') : '';
+  const cc = mail ? mail.cc.join(';') : '';
   const totalCount = ppItems.length + topItems.length;
-  const subject = '[MLB ACC] PPS/TOP Sample 확인 요청 (' + totalCount + '건) - ' + vendor;
+  const subject = '[MLB ACC] PPS/TOP Sample CFM 확인 요청 (' + totalCount + '건) - ' + vendor;
   const body = buildPushMailContent(vendor, ppItems, topItems);
 
   // Outlook Web compose deep link
