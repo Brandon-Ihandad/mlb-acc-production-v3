@@ -151,7 +151,7 @@ table.dt tr:hover{background:#f8f9fa}
     <div class="section-title">PP/TOP 진도율</div>
     <div class="season-tabs" id="sample-season-tabs"></div>
     <div id="sample-content"></div>
-    <div class="section-title" style="margin-top:24px">협력사 PPS/TOP Status (Teams)</div>
+    <div class="section-title" style="margin-top:24px">Headwear PPS/TOP Status (Teams)</div>
     <div class="teams-bar">
       <button class="teams-btn" id="teams-connect-btn" onclick="connectTeams()">Teams 연결</button>
       <button class="teams-btn" id="teams-explore-btn" onclick="exploreTeamsChannels()" style="background:#e9ecef;color:#495057;font-size:10px;padding:6px 10px">채널 탐색</button>
@@ -2908,7 +2908,7 @@ function buildPushMailContent(vendor, ppItems, topItems) {
   return body;
 }
 
-function buildPushMailExcel(vendor, ppItems, topItems) {
+function buildPushMailExcelBase64(vendor, ppItems, topItems) {
   const wb = XLSX.utils.book_new();
   const isEn = ['FOREMOST','NTRX'].includes(vendor);
   const hdr = isEn ? ['Season','Style','Color','Type','CFM DUE','Status'] : ['시즌','스타일','컬러','구분','CFM DUE','상태'];
@@ -2929,48 +2929,102 @@ function buildPushMailExcel(vendor, ppItems, topItems) {
   ws['!cols'] = [{wch:8},{wch:14},{wch:8},{wch:6},{wch:12},{wch:14}];
   XLSX.utils.book_append_sheet(wb, ws, 'CFM DUE');
 
-  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const today = new Date().toISOString().slice(0,10).replace(/-/g,'');
-  a.href = url; a.download = 'CFM_DUE_' + vendor + '_' + today + '.xlsx';
-  document.body.appendChild(a); a.click();
-  setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 200);
+  return XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
 }
 
-function composePushMail(vendor) {
+function buildPushMailHtml(vendor, ppItems, topItems) {
+  const isEn = ['FOREMOST','NTRX'].includes(vendor);
+  const mail = TEAMS_VENDOR_MAIL[vendor];
+  const name = mail ? mail.name + (isEn ? '' : '님') : vendor + (isEn ? '' : ' 담당자님');
+
+  let h = '<div style="font-family:Malgun Gothic,sans-serif;font-size:13px;line-height:1.8">';
+  h += '<p>' + (isEn ? 'Dear ' + (mail?mail.name:vendor) + ',' : name + ',') + '</p>';
+  h += '<p>' + (isEn
+    ? 'Below is the list of styles approaching or past the CFM deadline.<br>Please review the status, check ETD, and notify us of any issues.'
+    : '안녕하세요, MLB 소싱팀입니다.<br>컨펌 기한이 임박하거나 경과한 스타일 리스트를 전달드립니다.<br>확인하시어 ETD 점검 및 이슈 발생 시 알려주시기 바랍니다.') + '</p>';
+
+  const thStyle = 'style="border:1px solid #ccc;padding:4px 8px;background:#f5f5f5;font-size:12px"';
+  const tdStyle = 'style="border:1px solid #ccc;padding:4px 8px;font-size:12px"';
+  const tdRed = 'style="border:1px solid #ccc;padding:4px 8px;font-size:12px;color:#d32f2f;font-weight:bold"';
+
+  function buildTable(items, type) {
+    const dueKey = type === 'PP' ? 'pp' : 'top';
+    let t = '<p><b>■ ' + type + ' Sample ' + (isEn?'Pending CFM':'미확정') + ' (' + items.length + (isEn?' styles)':'건)') + '</b></p>';
+    t += '<table style="border-collapse:collapse;margin-bottom:12px"><tr>';
+    const hdrs = isEn ? ['Season','Style','Color',type+' DUE','Status'] : ['시즌','스타일','컬러',type+' DUE','상태'];
+    hdrs.forEach(h => { t += '<th '+thStyle+'>' + h + '</th>'; });
+    t += '</tr>';
+    for (const r of items) {
+      const dd = dateDiffDays(r[dueKey].cfmDue);
+      const tag = dd < 0 ? 'D+' + Math.abs(dd) + (isEn?' overdue':' 초과') : dd === 0 ? 'D-Day' : 'D-' + dd;
+      const st = dd < 0 ? tdRed : tdStyle;
+      t += '<tr><td '+tdStyle+'>'+(r.season||'-')+'</td><td '+tdStyle+'>'+r.style+'</td><td '+tdStyle+'>'+(r.color||'-')+'</td><td '+tdStyle+'>'+r[dueKey].cfmDue+'</td><td '+st+'>'+tag+'</td></tr>';
+    }
+    t += '</table>';
+    return t;
+  }
+
+  if (ppItems.length > 0) h += buildTable(ppItems, 'PP');
+  if (topItems.length > 0) h += buildTable(topItems, 'TOP');
+  h += '<p>' + (isEn ? 'Please confirm at your earliest convenience.<br>Thank you.' : '확인 부탁드립니다.<br>감사합니다.') + '</p>';
+  h += '</div>';
+  return h;
+}
+
+async function composePushMail(vendor) {
   const { ppItems, topItems } = getSelectedPmItems();
   if (ppItems.length === 0 && topItems.length === 0) return alert('선택된 스타일이 없습니다.');
 
   const mail = TEAMS_VENDOR_MAIL[vendor];
-  const to = mail ? mail.to.join(';') : '';
-  const cc = mail ? mail.cc.join(';') : '';
+  const to = mail ? mail.to : [];
+  const cc = mail ? mail.cc : [];
   const totalCount = ppItems.length + topItems.length;
   const subject = '[MLB] PP/TOP Sample CFM DUE 임박/경과 스타일 확인 요청 (' + totalCount + '건) - ' + vendor;
-  const bodyText = buildPushMailContent(vendor, ppItems, topItems);
 
-  // 1) Excel 첨부용 파일 자동 다운로드
-  buildPushMailExcel(vendor, ppItems, topItems);
+  const btn = document.querySelector('#pm-overlay .pm-btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = '발송 중...'; }
 
-  // 2) mailto: 로 Outlook 초안 열기
-  const mailtoUrl = 'mailto:' + encodeURIComponent(to)
-    + '?cc=' + encodeURIComponent(cc)
-    + '&subject=' + encodeURIComponent(subject)
-    + '&body=' + encodeURIComponent(bodyText);
+  try {
+    const htmlBody = buildPushMailHtml(vendor, ppItems, topItems);
+    const xlsxBase64 = buildPushMailExcelBase64(vendor, ppItems, topItems);
+    const today = new Date().toISOString().slice(0,10).replace(/-/g,'');
+    const filename = 'CFM_DUE_' + vendor + '_' + today + '.xlsx';
 
-  setTimeout(() => {
-    const w = window.open(mailtoUrl, '_blank');
-    if (!w) {
-      const a = document.createElement('a');
-      a.href = mailtoUrl; a.target = '_top'; a.style.display = 'none';
-      document.body.appendChild(a); a.click();
-      setTimeout(() => a.remove(), 200);
+    const mailyUrl = DCSAI_ORIGIN + '/server/projects/' + TEAMS_PROJECT + '/mail/send';
+    const res = await fetch(mailyUrl, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'content-type': 'application/json',
+        'idempotency-key': crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        from: 'no-reply@maily.fnfcorp.com',
+        to: to,
+        cc: cc,
+        subject: subject,
+        html: htmlBody,
+        reply_to: 'miheepark@fnfcorp.com',
+        attachments: [{
+          filename: filename,
+          content_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          content_base64: xlsxBase64,
+        }],
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error((err.error?.message || res.statusText) + ' (' + res.status + ')');
     }
-  }, 500);
 
-  alert('Excel 파일이 다운로드됩니다. Outlook 메일 초안에 첨부해주세요.');
-  document.getElementById('pm-overlay').remove();
+    alert('메일이 성공적으로 발송되었습니다. (' + totalCount + '건, Excel 첨부)');
+    document.getElementById('pm-overlay').remove();
+  } catch (e) {
+    console.error('[composePushMail] error:', e);
+    prompt('메일 발송 실패 (아래 텍스트를 복사할 수 있습니다):', e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '메일 발송'; }
+  }
 }
 
 // ── Init ──
