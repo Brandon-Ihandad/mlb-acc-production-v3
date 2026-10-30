@@ -2934,15 +2934,13 @@ function composePushMail(vendor) {
   const subject = '[MLB ACC] PPS/TOP Sample CFM 확인 요청 (' + totalCount + '건) - ' + vendor;
   const body = buildPushMailContent(vendor, ppItems, topItems);
 
-  // Outlook Web compose deep link
-  const params = new URLSearchParams();
-  if (to) params.set('to', to);
-  if (cc) params.set('cc', cc);
-  params.set('subject', subject);
-  params.set('body', body);
-  const url = 'https://outlook.office.com/mail/deeplink/compose?' + params.toString();
+  // mailto: → Outlook 앱에서 초안 열기
+  let url = 'mailto:' + encodeURIComponent(to);
+  url += '?cc=' + encodeURIComponent(cc);
+  url += '&subject=' + encodeURIComponent(subject);
+  url += '&body=' + encodeURIComponent(body);
 
-  window.open(url, '_blank');
+  window.location.href = url;
   document.getElementById('pm-overlay').remove();
 }
 
