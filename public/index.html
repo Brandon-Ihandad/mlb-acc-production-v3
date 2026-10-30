@@ -2840,7 +2840,7 @@ function openPushMailModal(vendor) {
 
   // Footer
   mh += '<div class="pm-footer">';
-  mh += '<button class="pm-btn-primary" onclick="composePushMail(\'' + vendor.replace(/'/g,"\\'") + '\')">메일 발송</button>';
+  mh += '<button class="pm-btn-primary" onclick="previewPushMail(\'' + vendor.replace(/'/g,"\\'") + '\')">미리보기</button>';
   mh += '</div></div>';
 
   overlay.innerHTML = mh;
@@ -3083,7 +3083,7 @@ function buildPushMailHtml(vendor, ppItems, topItems, hasChart) {
   return h;
 }
 
-async function composePushMail(vendor) {
+function previewPushMail(vendor) {
   const { ppItems, topItems } = getSelectedPmItems();
   if (ppItems.length === 0 && topItems.length === 0) return alert('선택된 스타일이 없습니다.');
 
@@ -3093,16 +3093,59 @@ async function composePushMail(vendor) {
   const totalCount = ppItems.length + topItems.length;
   const subject = '[MLB] PP/TOP Sample CFM DUE 임박/경과 스타일 확인 요청 (' + totalCount + '건) - ' + vendor;
 
-  const btn = document.querySelector('#pm-overlay .pm-btn-primary');
+  const chartBase64 = buildPushMailChartBase64(vendor, ppItems, topItems);
+  const htmlBody = buildPushMailHtml(vendor, ppItems, topItems, true);
+  const xlsxBase64 = buildPushMailExcelBase64(vendor, ppItems, topItems);
+  const today = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  const filename = 'CFM_DUE_' + vendor + '_' + today + '.xlsx';
+
+  // 미리보기 오버레이에 저장
+  window._pmSendPayload = { to, cc, subject, htmlBody, chartBase64, xlsxBase64, filename, totalCount };
+
+  // 기존 목록 오버레이 위에 미리보기 오버레이 표시
+  const pvOv = document.createElement('div');
+  pvOv.id = 'pm-preview-overlay';
+  pvOv.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10001;display:flex;align-items:center;justify-content:center';
+
+  let ph = '<div style="background:#fff;border-radius:12px;width:720px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.25)">';
+  // 헤더
+  ph += '<div style="padding:14px 22px;border-bottom:1px solid #e9ecef;display:flex;justify-content:space-between;align-items:center">';
+  ph += '<div style="font-weight:700;font-size:14px">📧 메일 미리보기</div>';
+  ph += '<button onclick="document.getElementById(\'pm-preview-overlay\').remove()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#868e96">✕</button>';
+  ph += '</div>';
+
+  // 메일 정보
+  ph += '<div style="padding:12px 22px;border-bottom:1px solid #f1f3f5;font-size:11px;color:#495057;line-height:1.8">';
+  ph += '<div><b>To:</b> ' + to.join(', ') + '</div>';
+  ph += '<div><b>CC:</b> ' + cc.join(', ') + '</div>';
+  ph += '<div><b>Subject:</b> ' + subject + '</div>';
+  ph += '<div><b>📎</b> ' + filename + ', cfm_due_chart.png</div>';
+  ph += '</div>';
+
+  // 본문 미리보기 (차트 이미지를 data URI로 표시)
+  const previewHtml = htmlBody.replace('cid:cfm_chart', 'data:image/png;base64,' + chartBase64);
+  ph += '<div style="flex:1;overflow-y:auto;padding:16px 22px;background:#fafafa">';
+  ph += previewHtml;
+  ph += '</div>';
+
+  // 푸터
+  ph += '<div style="padding:12px 22px;border-top:1px solid #e9ecef;display:flex;gap:8px;justify-content:flex-end">';
+  ph += '<button onclick="document.getElementById(\'pm-preview-overlay\').remove()" style="padding:8px 20px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:#f1f3f5;color:#495057">취소</button>';
+  ph += '<button id="pm-send-btn" onclick="sendPushMail()" style="padding:8px 20px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:#228be6;color:#fff">발송</button>';
+  ph += '</div></div>';
+
+  pvOv.innerHTML = ph;
+  document.body.appendChild(pvOv);
+}
+
+async function sendPushMail() {
+  const p = window._pmSendPayload;
+  if (!p) return;
+
+  const btn = document.getElementById('pm-send-btn');
   if (btn) { btn.disabled = true; btn.textContent = '발송 중...'; }
 
   try {
-    const chartBase64 = buildPushMailChartBase64(vendor, ppItems, topItems);
-    const htmlBody = buildPushMailHtml(vendor, ppItems, topItems, true);
-    const xlsxBase64 = buildPushMailExcelBase64(vendor, ppItems, topItems);
-    const today = new Date().toISOString().slice(0,10).replace(/-/g,'');
-    const filename = 'CFM_DUE_' + vendor + '_' + today + '.xlsx';
-
     const mailyUrl = DCSAI_ORIGIN + '/server/projects/' + TEAMS_PROJECT + '/mail/send';
     const res = await fetch(mailyUrl, {
       method: 'POST',
@@ -3113,22 +3156,22 @@ async function composePushMail(vendor) {
       },
       body: JSON.stringify({
         from: 'no-reply@maily.fnfcorp.com',
-        to: to,
-        cc: cc,
-        subject: subject,
-        html: htmlBody,
+        to: p.to,
+        cc: p.cc,
+        subject: p.subject,
+        html: p.htmlBody,
         reply_to: 'miheepark@fnfcorp.com',
         attachments: [
           {
             filename: 'cfm_due_chart.png',
             content_type: 'image/png',
-            content_base64: chartBase64,
+            content_base64: p.chartBase64,
             content_id: 'cfm_chart',
           },
           {
-            filename: filename,
+            filename: p.filename,
             content_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            content_base64: xlsxBase64,
+            content_base64: p.xlsxBase64,
           },
         ],
       }),
@@ -3139,12 +3182,14 @@ async function composePushMail(vendor) {
       throw new Error((err.error?.message || res.statusText) + ' (' + res.status + ')');
     }
 
-    alert('메일이 성공적으로 발송되었습니다. (' + totalCount + '건, Excel 첨부)');
+    alert('메일이 성공적으로 발송되었습니다. (' + p.totalCount + '건, 차트+Excel 첨부)');
+    document.getElementById('pm-preview-overlay').remove();
     document.getElementById('pm-overlay').remove();
+    window._pmSendPayload = null;
   } catch (e) {
-    console.error('[composePushMail] error:', e);
+    console.error('[sendPushMail] error:', e);
     prompt('메일 발송 실패 (아래 텍스트를 복사할 수 있습니다):', e.message);
-    if (btn) { btn.disabled = false; btn.textContent = '메일 발송'; }
+    if (btn) { btn.disabled = false; btn.textContent = '발송'; }
   }
 }
 
