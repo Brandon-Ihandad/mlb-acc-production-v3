@@ -2826,16 +2826,14 @@ function openPushMailModal(vendor) {
   mh += '<div class="pm-body">';
 
   // PP Section
-  mh += '<div class="pm-section"><div class="pm-section-title pp"><span>PP Sample 미확정 (' + ppOverdue.length + '건) — CFM DUE 30일 이내</span>';
-  mh += '<span class="pm-check-all" onclick="togglePmAll(\'pp\')">전체선택/해제</span></div>';
-  mh += '<div style="display:flex;gap:6px;padding:0 8px 4px;font-size:9px;color:#adb5bd"><span style="width:22px"></span><span style="width:70px">시즌</span><span style="width:120px">스타일</span><span style="width:60px">컬러</span><span style="width:85px">PP DUE</span><span>D-Day</span></div>';
+  mh += '<div class="pm-section"><div class="pm-section-title pp">PP Sample 미확정 (' + ppOverdue.length + '건) — CFM DUE 30일 이내</div>';
+  mh += '<div style="display:flex;gap:6px;padding:0 8px 4px;font-size:9px;color:#adb5bd;align-items:center"><span style="width:22px;text-align:center;cursor:pointer;font-size:11px" class="pm-check-all" onclick="togglePmAll(\'pp\')" title="전체선택/해제">☑</span><span style="width:70px">시즌</span><span style="width:120px">스타일</span><span style="width:60px">컬러</span><span style="width:85px">PP DUE</span><span>D-Day</span></div>';
   mh += buildRows(ppOverdue, 'pp');
   mh += '</div>';
 
   // TOP Section
-  mh += '<div class="pm-section"><div class="pm-section-title top"><span>TOP Sample 미확정 (' + topOverdue.length + '건) — CFM DUE 21일 이내</span>';
-  mh += '<span class="pm-check-all" onclick="togglePmAll(\'top\')">전체선택/해제</span></div>';
-  mh += '<div style="display:flex;gap:6px;padding:0 8px 4px;font-size:9px;color:#adb5bd"><span style="width:22px"></span><span style="width:70px">시즌</span><span style="width:120px">스타일</span><span style="width:60px">컬러</span><span style="width:85px">TOP DUE</span><span>D-Day</span></div>';
+  mh += '<div class="pm-section"><div class="pm-section-title top">TOP Sample 미확정 (' + topOverdue.length + '건) — CFM DUE 21일 이내</div>';
+  mh += '<div style="display:flex;gap:6px;padding:0 8px 4px;font-size:9px;color:#adb5bd;align-items:center"><span style="width:22px;text-align:center;cursor:pointer;font-size:11px" class="pm-check-all" onclick="togglePmAll(\'top\')" title="전체선택/해제">☑</span><span style="width:70px">시즌</span><span style="width:120px">스타일</span><span style="width:60px">컬러</span><span style="width:85px">TOP DUE</span><span>D-Day</span></div>';
   mh += buildRows(topOverdue, 'top');
   mh += '</div>';
 
