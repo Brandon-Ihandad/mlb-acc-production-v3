@@ -2908,33 +2908,32 @@ function buildPushMailContent(vendor, ppItems, topItems) {
   return body;
 }
 
-async function composePushMail(vendor) {
+function composePushMail(vendor) {
   const { ppItems, topItems } = getSelectedPmItems();
   if (ppItems.length === 0 && topItems.length === 0) return alert('선택된 스타일이 없습니다.');
 
   const mail = TEAMS_VENDOR_MAIL[vendor];
-  const to = mail ? mail.to : [];
-  const cc = mail ? mail.cc : [];
+  const to = mail ? mail.to.join(';') : '';
+  const cc = mail ? mail.cc.join(';') : '';
   const totalCount = ppItems.length + topItems.length;
   const subject = '[MLB ACC] PPS/TOP Sample CFM 확인 요청 (' + totalCount + '건) - ' + vendor;
   const bodyText = buildPushMailContent(vendor, ppItems, topItems);
 
-  const btn = document.querySelector('#pm-overlay .pm-btn-primary');
-  if (btn) { btn.disabled = true; btn.textContent = '발송 중...'; }
+  const mailtoUrl = 'mailto:' + encodeURIComponent(to)
+    + '?cc=' + encodeURIComponent(cc)
+    + '&subject=' + encodeURIComponent(subject)
+    + '&body=' + encodeURIComponent(bodyText);
 
-  try {
-    const res = await teamsCall('/mail/send', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ to_emails: to, cc_emails: cc, subject, body_html: '<pre style="font-family:Malgun Gothic,sans-serif;font-size:13px;white-space:pre-wrap">' + bodyText.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</pre>' }),
-    });
-    alert('메일이 성공적으로 발송되었습니다. (' + totalCount + '건)');
-    document.getElementById('pm-overlay').remove();
-  } catch (e) {
-    console.error('[composePushMail] error:', e);
-    prompt('메일 발송 실패 (아래 텍스트를 복사할 수 있습니다):', e.message);
-    if (btn) { btn.disabled = false; btn.textContent = '메일 발송'; }
+  // iframe 내부에서 mailto: 차단 우회 — 새 창으로 열기
+  const w = window.open(mailtoUrl, '_blank');
+  if (!w) {
+    // 팝업 차단 시 hidden link + target=_top 시도
+    const a = document.createElement('a');
+    a.href = mailtoUrl; a.target = '_top'; a.style.display = 'none';
+    document.body.appendChild(a); a.click();
+    setTimeout(() => a.remove(), 200);
   }
+  document.getElementById('pm-overlay').remove();
 }
 
 // ── Init ──
