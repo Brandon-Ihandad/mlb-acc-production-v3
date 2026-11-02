@@ -86,7 +86,7 @@ table.dt tr:hover{background:#f8f9fa}
 #loading .msg{font-size:13px;color:#868e96;text-align:center;line-height:1.6}
 #error-box{display:none;margin:40px auto;max-width:600px;background:#fff5f5;border:1px solid #ffc9c9;border-radius:10px;padding:22px;color:#c92a2a;text-align:center}
 .debug-box{margin:14px 0;padding:12px 16px;background:#fff9db;border:1px solid #ffe066;border-radius:8px;font-size:11px;color:#e67700;max-height:260px;overflow:auto}
-.editable-cfm{cursor:pointer;position:relative}
+.editable-cfm{cursor:cell;position:relative;user-select:text}
 .editable-cfm:hover{background:#f3f0ff!important}
 .editable-cfm.manual{color:#7950f2;font-weight:600}
 .cfm-input{width:110px;padding:2px 4px;border:1px solid #7950f2;border-radius:4px;font-size:10px;outline:none}
@@ -2284,6 +2284,40 @@ document.addEventListener('keydown', function(e) {
     }).catch(function(){});
   }
 });
+// Teams Headwear PP/TOP CFM → 복종별 현황 반영
+function syncTeamsCfmToSamplePanel() {
+  if (!window._teamsData || !window._sampleSeason) return;
+  const season = window._sampleSeason;
+  let synced = 0;
+  for (const vendor of Object.keys(window._teamsData)) {
+    for (const row of window._teamsData[vendor]) {
+      if (!row.style) continue;
+      const style = row.style.trim();
+      const color = (row.color || '').trim();
+      // PP CFM (mlbCfm = MLB 확인 날짜)
+      if (row.pp && row.pp.mlbCfm) {
+        const key = LS_PREFIX + season + '-pp-' + style + '-' + color;
+        if (!localStorage.getItem(key)) {
+          localStorage.setItem(key, row.pp.mlbCfm);
+          synced++;
+        }
+      }
+      // TOP CFM
+      if (row.top && row.top.mlbCfm) {
+        const key = LS_PREFIX + season + '-top-' + style + '-' + color;
+        if (!localStorage.getItem(key)) {
+          localStorage.setItem(key, row.top.mlbCfm);
+          synced++;
+        }
+      }
+    }
+  }
+  if (synced > 0) {
+    console.log('[syncTeamsCfm] ' + synced + '건 동기화');
+    refreshSamplePanel();
+  }
+}
+
 function refreshSamplePanel() {
   if (!window._records || !window._sampleSeason) return;
   // 스크롤 위치 저장
@@ -2640,6 +2674,7 @@ async function connectTeams() {
     btn.disabled = false;
     renderTeamsVendorChips();
     renderTeamsSampleContent(Object.keys(window._teamsData)[0]);
+    syncTeamsCfmToSamplePanel();
   } else {
     status.className = 'teams-status error';
     btn.textContent = 'Teams 연결';
