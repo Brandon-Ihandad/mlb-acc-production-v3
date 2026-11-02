@@ -1470,7 +1470,14 @@ function openColFilter(e, tblId, colIdx) {
   popup.className = 'col-popup';
   const rect = e.target.closest('th').getBoundingClientRect();
   popup.style.left = Math.min(rect.left, window.innerWidth - 210) + 'px';
-  popup.style.top = (rect.bottom + 2) + 'px';
+  const popupMaxH = 320;
+  const spaceBelow = window.innerHeight - rect.bottom - 10;
+  if (spaceBelow < popupMaxH && rect.top > popupMaxH) {
+    popup.style.bottom = (window.innerHeight - rect.top + 2) + 'px';
+    popup.style.top = 'auto';
+  } else {
+    popup.style.top = Math.min(rect.bottom + 2, window.innerHeight - popupMaxH - 10) + 'px';
+  }
 
   let html = '<div class="col-popup-search"><input type="text" placeholder="검색..." id="cfSearch"></div>';
   html += '<div class="col-popup-list" id="cfList">';
@@ -1483,6 +1490,13 @@ function openColFilter(e, tblId, colIdx) {
   popup.innerHTML = html;
   document.body.appendChild(popup);
   _activePopup = popup;
+
+  // 스크롤 시 팝업 닫기 (tbl-wrap 내부 스크롤)
+  const scrollWrap = e.target.closest('.tbl-wrap');
+  if (scrollWrap) {
+    const closeOnScroll = () => { closeColPopup(); scrollWrap.removeEventListener('scroll', closeOnScroll); };
+    scrollWrap.addEventListener('scroll', closeOnScroll, { once: true });
+  }
 
   // 검색 필터 + 자동 체크
   popup.querySelector('#cfSearch').addEventListener('input', function() {
@@ -2081,9 +2095,9 @@ function renderSamplePanel(season, records) {
         var ppManual = localStorage.getItem(LS_PREFIX + season + '-pp-' + s.style + '-' + s.color) ? ' manual' : '';
         var topManual = localStorage.getItem(LS_PREFIX + season + '-top-' + s.style + '-' + s.color) ? ' manual' : '';
         h += '<td>' + (s.ppSubmitDt||'-') + '</td>';
-        h += '<td class="editable-cfm' + ppManual + '" onclick="selectCfmCell(this,\'' + sEsc + '\',\'' + cEsc + '\',\'pp\',\'' + season + '\')" ondblclick="editCfmDate(this,\'' + sEsc + '\',\'' + cEsc + '\',\'pp\',\'' + season + '\')" title="클릭:선택 / 더블클릭:수정 / Ctrl+C,V">' + (s.ppCfmDt || '미컨펌') + '</td>';
+        h += '<td class="editable-cfm' + ppManual + '" onclick="editCfmDate(this,\'' + sEsc + '\',\'' + cEsc + '\',\'pp\',\'' + season + '\')" title="클릭하여 수정 (붙여넣기 가능)">' + (s.ppCfmDt || '미컨펌') + '</td>';
         h += '<td>' + (s.topSubmitDt||'-') + '</td>';
-        h += '<td class="editable-cfm' + topManual + '" onclick="selectCfmCell(this,\'' + sEsc + '\',\'' + cEsc + '\',\'top\',\'' + season + '\')" ondblclick="editCfmDate(this,\'' + sEsc + '\',\'' + cEsc + '\',\'top\',\'' + season + '\')" title="클릭:선택 / 더블클릭:수정 / Ctrl+C,V">' + (s.topCfmDt || '미컨펌') + '</td></tr>';
+        h += '<td class="editable-cfm' + topManual + '" onclick="editCfmDate(this,\'' + sEsc + '\',\'' + cEsc + '\',\'top\',\'' + season + '\')" title="클릭하여 수정 (붙여넣기 가능)">' + (s.topCfmDt || '미컨펌') + '</td></tr>';
       }
       h += '</tbody></table></div>';
       h += '</div></div>'; // drill-down div + border-top div
@@ -2239,51 +2253,65 @@ const LS_PREFIX = 'mlb-acc-v23-';
 // 셀 선택 + 더블클릭 편집 + Ctrl+C/V
 window._cfmSelected = null; // { td, style, color, field, season }
 function selectCfmCell(td, style, color, field, season) {
-  document.querySelectorAll('.editable-cfm.selected').forEach(el => el.classList.remove('selected'));
+  if (td.querySelector('.cfm-input')) return;
+  document.querySelectorAll('.editable-cfm.selected').forEach(function(el) { el.classList.remove('selected'); });
   td.classList.add('selected');
   window._cfmSelected = { td, style, color, field, season };
 }
 function editCfmDate(td, style, color, field, season) {
   if (td.querySelector('.cfm-input')) return;
-  const curVal = td.textContent === '미컨펌' ? '' : td.textContent;
-  const inp = document.createElement('input');
-  inp.type = 'date'; inp.className = 'cfm-input'; inp.value = curVal;
-  td.textContent = ''; td.appendChild(inp); inp.focus();
-  let saved = false;
+  var curVal = td.textContent.trim();
+  if (curVal === '미컨펌') curVal = '';
+  var inp = document.createElement('input');
+  inp.type = 'text';
+  inp.className = 'cfm-input';
+  inp.value = curVal;
+  inp.placeholder = 'yyyy-mm-dd';
+  inp.style.cssText = 'width:90px;font-size:11px;padding:1px 3px;border:1px solid #7950f2;border-radius:3px;text-align:center';
+  td.textContent = '';
+  td.appendChild(inp);
+  inp.focus();
+  inp.select();
+  var saved = false;
   function save() {
     if (saved) return; saved = true;
-    const v = inp.value;
-    const lsKey = LS_PREFIX + season + '-' + field + '-' + style + '-' + color;
-    if (v) { localStorage.setItem(lsKey, v); } else { localStorage.removeItem(lsKey); }
+    var raw = inp.value.trim();
+    var v = normalizeDateStr(raw);
+    var lsKey = LS_PREFIX + season + '-' + field + '-' + style + '-' + color;
+    if (v) { localStorage.setItem(lsKey, v); } else if (!raw) { localStorage.removeItem(lsKey); }
     setTimeout(refreshSamplePanel, 0);
   }
-  inp.addEventListener('keydown', e => {
+  inp.addEventListener('keydown', function(e) {
     if (e.key === 'Enter') { e.preventDefault(); save(); }
     if (e.key === 'Escape') { saved = true; refreshSamplePanel(); }
   });
-  inp.addEventListener('blur', () => { setTimeout(() => { if (!saved) save(); }, 150); });
+  inp.addEventListener('blur', function() { setTimeout(function() { if (!saved) save(); }, 150); });
 }
-// Ctrl+C: 선택된 셀의 날짜를 시스템 클립보드에 복사
-// Ctrl+V: 시스템 클립보드의 날짜를 선택된 셀에 붙여넣기
-document.addEventListener('keydown', function(e) {
-  if (!window._cfmSelected) return;
-  const s = window._cfmSelected;
-  if (e.ctrlKey && e.key === 'c') {
-    const txt = s.td.textContent.trim();
-    if (txt && txt !== '미컨펌') { navigator.clipboard.writeText(txt); }
+// 날짜 문자열 정규화: 다양한 형식 → yyyy-MM-dd
+function normalizeDateStr(raw) {
+  if (!raw) return '';
+  raw = raw.trim().replace(/\s+/g,' ');
+  // yyyy-MM-dd
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  // yyyy/MM/dd or yyyy.MM.dd
+  var m = raw.match(/^(\d{4})[\/.](\d{1,2})[\/.](\d{1,2})$/);
+  if (m) return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
+  // MM/dd/yyyy or MM-dd-yyyy or MM.dd.yyyy
+  m = raw.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/);
+  if (m) return m[3]+'-'+m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0');
+  // Excel serial number
+  var num = Number(raw);
+  if (num > 40000 && num < 60000) {
+    var d = new Date((num - 25569) * 86400000);
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   }
-  if (e.ctrlKey && e.key === 'v') {
-    e.preventDefault();
-    navigator.clipboard.readText().then(function(txt) {
-      txt = txt.trim();
-      if (/^\d{4}-\d{2}-\d{2}$/.test(txt)) {
-        const lsKey = LS_PREFIX + s.season + '-' + s.field + '-' + s.style + '-' + s.color;
-        localStorage.setItem(lsKey, txt);
-        refreshSamplePanel();
-      }
-    }).catch(function(){});
+  // Date 객체로 파싱 시도
+  var dt = new Date(raw);
+  if (!isNaN(dt.getTime()) && dt.getFullYear() > 2000) {
+    return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
   }
-});
+  return '';
+}
 // Teams Headwear PP/TOP CFM → 복종별 현황 반영
 function syncTeamsCfmToSamplePanel() {
   if (!window._teamsData || !window._sampleSeason) return;
@@ -2292,11 +2320,14 @@ function syncTeamsCfmToSamplePanel() {
   for (const vendor of Object.keys(window._teamsData)) {
     for (const row of window._teamsData[vendor]) {
       if (!row.style) continue;
-      const style = row.style.trim();
-      const color = (row.color || '').trim();
+      const rawStyle = row.style.trim();
+      const style9 = rawStyle.length > 9 ? rawStyle.slice(0, 9) : rawStyle;
+      // color: Teams 별도 컬럼 우선, 없으면 14자리 style의 뒷부분(10번째~) 사용
+      const rawColor = (row.color || '').trim();
+      const color = rawColor || (rawStyle.length > 9 ? rawStyle.slice(9) : '');
       // PP CFM (mlbCfm = MLB 확인 날짜)
       if (row.pp && row.pp.mlbCfm) {
-        const key = LS_PREFIX + season + '-pp-' + style + '-' + color;
+        const key = LS_PREFIX + season + '-pp-' + style9 + '-' + color;
         if (!localStorage.getItem(key)) {
           localStorage.setItem(key, row.pp.mlbCfm);
           synced++;
@@ -2304,7 +2335,7 @@ function syncTeamsCfmToSamplePanel() {
       }
       // TOP CFM
       if (row.top && row.top.mlbCfm) {
-        const key = LS_PREFIX + season + '-top-' + style + '-' + color;
+        const key = LS_PREFIX + season + '-top-' + style9 + '-' + color;
         if (!localStorage.getItem(key)) {
           localStorage.setItem(key, row.top.mlbCfm);
           synced++;
